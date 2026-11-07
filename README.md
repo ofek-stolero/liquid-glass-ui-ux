@@ -29,3 +29,12 @@
 - **Real optical glass:** refraction, a lit edge, the magnifying lens and morphs, plus colour that adapts to the background, tints that stay readable, and the iOS 27 transparency slider.
 - **Two test gates:** a glass test with 22 checks and a UX test with 27 checks that runs the app as both an iPhone and a Mac.
 - **Reference app:** Glass Music (`examples/music.html`), one file that is iPhone Music on a phone and Mac Music on a desktop.
+
+## Companion skill
+
+This skill designs the functional layer (glass, behaviour). The content layer underneath is designed by **design-taste-frontend** (taste-skill) by Leonxlnx: https://github.com/Leonxlnx/taste-skill. Install both:
+
+```bash
+npx skills add Leonxlnx/taste-skill
+git clone https://github.com/ofek-stolero/liquid-glass-ui-ux ~/.claude/skills/liquid-glass-ui-ux
+```
