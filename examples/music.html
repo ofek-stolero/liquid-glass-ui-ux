@@ -1,0 +1,1011 @@
+<title>Glass Music</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* liquid-glass-gl.css — companion to liquid-glass-gl.js. Glass content reads --lg-ink set by the renderer. */
+[data-gl]{ color: var(--lg-ink, #fff); }
+[data-gl] .lg-ink-2{ color: var(--lg-ink-2, rgb(255 255 255 / .74)); }
+/* No WebGL2: the backdrop canvas is shown directly and glass falls back to a clear, lightly frosted surface. */
+html.lg-no-webgl [data-gl]{ background: rgb(255 255 255 / .12); -webkit-backdrop-filter: blur(6px) saturate(1.2); backdrop-filter: blur(6px) saturate(1.2); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .22); }
+html.lg-no-webgl [data-gl][data-role="surface"]{ background: rgb(20 22 26 / .7); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+@media (prefers-reduced-transparency: reduce){ html.lg-no-webgl [data-gl]{ background: rgb(28 30 34 / .94); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+[data-gl]:focus-visible, [data-gl] :focus-visible{ outline: 3px solid #8ec1ff; outline-offset: 2px; }
+
+/* liquid-ux.css — companion to liquid-ux.js. Tokens can be overridden per app. */
+:root{
+  --lux-ink: #f3f5fa; --lux-ink-2: rgb(243 245 250 / .72);
+  --lux-sheet-bg: rgb(24 26 31 / .86);       /* used when the optical glass renderer is absent */
+  --lux-sheet-bg-full: rgb(24 26 31 / .97);
+  --lux-sk: rgb(255 255 255 / .09);          /* skeleton tone: one step from the surface, never a gradient shimmer */
+  --lux-sk-2: rgb(255 255 255 / .15);
+  --lux-accent: #0a84ff; --lux-danger: #ff453a;
+  --lux-radius-sheet: 34px;
+}
+@media (prefers-color-scheme: light){ :root:not([data-theme="dark"]){ --lux-ink:#111316; --lux-ink-2:rgb(17 19 22 / .66); --lux-sheet-bg: rgb(246 246 248 / .86); --lux-sheet-bg-full: rgb(246 246 248 / .97); --lux-sk: rgb(0 0 0 / .07); --lux-sk-2: rgb(0 0 0 / .12); } }
+
+/* ---------- press feedback: highlight on touch-down, spring back on release ---------- */
+.lux :where([data-press], button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="switch"], summary){ transition: scale .45s cubic-bezier(.2,.9,.3,1.18), opacity .2s ease, background-color .2s ease; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.lux :where([data-pressed]):not([data-gl]){ scale: .965; opacity: .82; transition-duration: .08s, .08s, .08s; transition-timing-function: ease-out; }
+.lux :where([data-press="row"][data-pressed]){ scale: 1; opacity: 1; background-color: rgb(127 127 127 / .14); }
+@media (hover: hover) and (pointer: fine){ .lux :where([data-press], button, [role="button"]):hover{ opacity: .92; } }
+@media (prefers-reduced-motion: reduce){ .lux :where([data-pressed]){ scale: 1; } .lux :where([data-press], button, a[href], [role="button"]){ transition: opacity .15s ease; } }
+
+/* ---------- sheet ---------- */
+.lux-backdrop{ position: fixed; inset: 0; z-index: 60; background: #000; opacity: 0; }
+.lux-sheet{ position: fixed; z-index: 61; left: 8px; right: 8px; top: 0; border-radius: var(--lux-radius-sheet); color: var(--lux-ink); display: flex; flex-direction: column; overflow: hidden; touch-action: none; will-change: translate;
+  background: color-mix(in srgb, var(--lux-sheet-bg) calc((1 - var(--lux-full, 0)) * 100%), var(--lux-sheet-bg-full)); }
+html:not(.lg-no-webgl) .lux-sheet[data-gl]{ background: transparent; }      /* the optical renderer paints the glass */
+.lux-sheet-wide{ left: 50%; right: auto; width: min(560px, calc(100vw - 32px)); }
+.lux-grab{ width: 40px; height: 5px; border-radius: 3px; background: var(--lux-ink-2); margin: 8px auto 2px; flex: none; position: relative; cursor: grab; }
+.lux-grab::before{ content: ""; position: absolute; inset: -14px -30px; }
+.lux-sheet-h{ display: flex; align-items: center; gap: 12px; padding: 6px 14px 8px 20px; flex: none; }
+.lux-sheet-t{ flex: 1; margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.01em; text-wrap: balance; }
+.lux-close{ width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; background: rgb(127 127 127 / .2); color: inherit; border: 0; flex: none; }
+.lux-sheet-b{ flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px calc(28px + env(safe-area-inset-bottom, 0px)); touch-action: pan-y; }
+[data-lux-page]{ transform-origin: 50% 0; transition: none; }
+
+/* ---------- skeleton: shapes that match the content they stand for ---------- */
+.lux-sk{ display: block; background: var(--lux-sk); border-radius: 8px; animation: lux-pulse 1.6s ease-in-out infinite alternate; }
+.lux-sk-line{ height: 14px; margin: 10px 0; border-radius: 7px; }
+.lux-sk-row{ display: flex; align-items: center; gap: 14px; padding: 10px 0; }
+.lux-sk-col{ flex: 1; }
+@keyframes lux-pulse{ from{ background: var(--lux-sk); } to{ background: var(--lux-sk-2); } }
+@media (prefers-reduced-motion: reduce){ .lux-sk{ animation: none; } }
+.lux-error{ color: var(--lux-ink-2); }
+
+/* ---------- pull to refresh: the activity indicator appears as you pull, spins while loading ---------- */
+.lux-refresh{ position: fixed; left: 50%; top: calc(14px + env(safe-area-inset-top, 0px)); z-index: 4; width: 28px; height: 28px; margin-left: -14px; opacity: 0; pointer-events: none; }
+.lux-refresh i{ position: absolute; left: 12.5px; top: 0; width: 3px; height: 8px; border-radius: 2px; background: var(--lux-ink); transform-origin: 1.5px 14px; opacity: calc(var(--p, 0) * .9); }
+.lux-refresh i:nth-child(1){ rotate: 0deg } .lux-refresh i:nth-child(2){ rotate: 45deg } .lux-refresh i:nth-child(3){ rotate: 90deg } .lux-refresh i:nth-child(4){ rotate: 135deg }
+.lux-refresh i:nth-child(5){ rotate: 180deg } .lux-refresh i:nth-child(6){ rotate: 225deg } .lux-refresh i:nth-child(7){ rotate: 270deg } .lux-refresh i:nth-child(8){ rotate: 315deg }
+.lux-refresh[data-spin]{ animation: lux-spin .9s steps(8) infinite; }
+@keyframes lux-spin{ to{ rotate: 360deg; } }
+
+/* ---------- swipe actions ---------- */
+.lux-swipe{ position: relative; overflow: hidden; touch-action: pan-y; }
+.lux-swipe > :first-child{ position: relative; z-index: 1; will-change: translate; }
+.lux-swipe-acts{ position: absolute; inset: 0 0 0 auto; display: flex; z-index: 0; width: var(--w, 0px); justify-content: flex-end; overflow: hidden; }
+.lux-swipe-acts button{ min-width: 74px; border: 0; color: #fff; background: #636366; font-weight: 650; }
+.lux-swipe-acts .lux-destructive{ background: var(--lux-danger); }
+
+/* ---------- context menu ---------- */
+.lux-ctx-layer{ position: fixed; inset: 0; z-index: 70; background: rgb(0 0 0 / .28); }
+.lux-ctx{ position: fixed; min-width: 230px; padding: 6px; border-radius: 22px; display: grid; gap: 2px; color: var(--lux-ink); background: var(--lux-sheet-bg); }
+html:not(.lg-no-webgl) .lux-ctx[data-gl]{ background: transparent; }
+.lux-ctx button{ display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 44px; padding: 0 14px; border: 0; border-radius: 16px; background: none; color: inherit; font: inherit; font-weight: 560; text-align: left; }
+.lux-ctx .lux-destructive{ color: var(--lux-danger); }
+.lux-lifted{ position: relative; z-index: 71; }
+
+/* ---------- toast ---------- */
+.lux-toast{ position: fixed; z-index: 80; left: 50%; translate: -50% 0; bottom: calc(170px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; gap: 16px; padding: 10px 10px 10px 20px; min-height: 52px; border-radius: 26px; color: var(--lux-ink); background: var(--lux-sheet-bg); font-weight: 600; max-width: calc(100vw - 32px); }
+html:not(.lg-no-webgl) .lux-toast[data-gl]{ background: transparent; }
+.lux-toast button{ height: 36px; padding: 0 16px; border-radius: 18px; border: 0; background: rgb(127 127 127 / .25); color: inherit; font: inherit; font-weight: 700; }
+
+/* glass shapes are squashed by the renderer; while a sheet is up, controls behind it recede */
+html.lux-sheet-open [data-gl]:not(.lux-sheet):not(.lux-ctx):not(.lux-toast){ opacity: .5; transition: opacity .3s; }
+[data-lux-covered]{ opacity: 0 !important; pointer-events: none; transition: opacity .12s; }
+
+/* =============================== idiom tokens (HIG Typography + Buttons + Accessibility, 2026) =============================== */
+/* iPhone/iPad: Body 17pt/22, Large Title 34pt bold, Headline 17 semibold, Footnote 13; targets 44pt.
+   Mac: Body 13pt/16, Large Title 26pt, Headline 13 bold, Title 3 15; controls 28pt (min 20); rows 24–32pt. */
+:root{ --lux-body: 17px; --lux-lh: 22px; --lux-title: 34px; --lux-headline: 17px; --lux-foot: 13px; --lux-target: 44px; --lux-row: 52px; --lux-control: 44px; }
+:root[data-idiom="mac"]{ --lux-body: 13px; --lux-lh: 16px; --lux-title: 26px; --lux-headline: 13px; --lux-foot: 11px; --lux-target: 28px; --lux-row: 30px; --lux-control: 28px; }
+/* Mac: clicking does not squash; the pressed state darkens slightly, and hover shows a quiet highlight */
+:root[data-idiom="mac"].lux :where([data-pressed]):not([data-gl]){ scale: 1; opacity: .7; }
+:root[data-idiom="mac"] .lux-ctx-mac{ background: transparent; }
+:root[data-idiom="mac"] .lux-ctx{ min-width: 200px; padding: 5px; border-radius: 12px; }
+:root[data-idiom="mac"] .lux-ctx:not([data-gl]){ background: rgb(40 42 48 / .82); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6); box-shadow: inset 0 0 0 .5px rgb(255 255 255 / .16); }
+:root[data-idiom="mac"] .lux-ctx button{ min-height: 24px; border-radius: 6px; font-size: 13px; padding: 0 10px; }
+:root[data-idiom="mac"] .lux-ctx button:hover, :root[data-idiom="mac"] .lux-ctx button:focus-visible{ background: var(--lux-accent); color: #fff; outline: none; }
+/* Mac / iPad sheets: centred card; Mac puts its buttons at the bottom trailing edge */
+.lux-sheet[data-idiom="mac"], .lux-sheet[data-idiom="tablet"]{ left: 50%; right: auto; width: min(560px, calc(100vw - 32px)); border-radius: 22px; }
+.lux-sheet-f{ display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px 16px; flex: none; }
+.lux-sheet-f button{ min-height: 28px; padding: 0 16px; border-radius: 14px; border: 0; background: rgb(127 127 127 / .22); color: inherit; font: inherit; font-size: 13px; font-weight: 600; }
+.lux-sheet-f .lux-primary{ background: var(--lux-accent); color: #fff; }
+.lux-sr{ position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+:root{ --ground:#121317; --ink:#f4f6fb; --ink2:#a3abbb; --accent:#fa2d48; --sideW:232px; --barH:52px; }
+*{ box-sizing:border-box; -webkit-tap-highlight-color:transparent }
+html{ color-scheme:dark }
+html,body{ margin:0; background:var(--ground); color:var(--ink) }
+body{ font:var(--lux-body)/var(--lux-lh) -apple-system,"SF Pro Text",system-ui,"Segoe UI",sans-serif; -webkit-font-smoothing:antialiased }
+button,input{ font:inherit; color:inherit }
+button{ border:0; background:none; padding:0; cursor:pointer }
+.i{ width:22px; height:22px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none }
+:root[data-idiom="mac"] .i{ width:16px; height:16px; stroke-width:1.8 }
+/* ---------- content layer (DOM hit targets over the drawn feed; text the canvas draws is mirrored in aria labels) ---------- */
+#scrollc{ position:relative; z-index:1 }
+#tiles{ position:relative }
+.tile{ position:absolute; border-radius:16px; outline-offset:3px }
+#detail{ position:relative; display:none; padding:0 max(16px,env(safe-area-inset-right,0px)) 160px max(16px,env(safe-area-inset-left,0px)) }
+.d-head{ display:flex; gap:22px; align-items:flex-end; margin:0 0 18px }
+.d-head canvas{ width:150px; height:150px; border-radius:14px; flex:none }
+.d-head h2{ margin:0; font-size:var(--lux-title); line-height:1.08; letter-spacing:-.02em; font-weight:800; text-wrap:balance }
+.d-head p{ margin:4px 0 0; color:var(--accent); font-size:var(--lux-headline); font-weight:600 }
+.d-head small{ display:block; color:var(--ink2); margin-top:4px; font-size:var(--lux-foot) }
+.d-act{ display:flex; gap:10px; margin:0 0 18px }
+.d-act button{ min-height:var(--lux-control); padding:0 22px; border-radius:calc(var(--lux-control)/2); font-weight:650; background:rgb(255 255 255 / .1); display:inline-flex; align-items:center; gap:8px; color:var(--accent) }
+.d-act .play{ background:var(--accent); color:#fff }
+.rows{ display:grid }
+.row{ position:relative; border-radius:12px }
+.row .lux-swipe-in{ display:flex; align-items:center; gap:14px; min-height:var(--lux-row); padding:0 8px 0 10px; border-radius:12px }   /* transparent: the actions sit outside it until swiped */
+.row .t{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.row .d{ color:var(--ink2); font-variant-numeric:tabular-nums; font-size:var(--lux-foot) }
+.row .more{ width:var(--lux-target); height:var(--lux-target); display:grid; place-items:center; border-radius:50%; color:var(--ink2) }
+.row[aria-current="true"] .t{ color:var(--accent); font-weight:650 }
+:root[data-idiom="mac"] .row .lux-swipe-in{ border-radius:6px; padding:0 8px }
+:root[data-idiom="mac"] .row:hover .lux-swipe-in{ background:rgb(255 255 255 / .05) }
+:root[data-idiom="mac"] .row[aria-selected="true"] .lux-swipe-in{ background:var(--accent); color:#fff } :root[data-idiom="mac"] .row[aria-selected="true"] .d{ color:#fff }
+.row + .row::before{ content:""; position:absolute; left:10px; right:0; top:0; height:1px; background:rgb(255 255 255 / .07); z-index:2 } /* list separators are a real list convention */
+.sheet-detail .d-head canvas{ width:120px; height:120px }
+.sheet-detail .d-head h2{ font-size:24px }
+/* ---------- functional layer: phone ---------- */
+.ph{ display:none } .mc{ display:none }
+:root[data-idiom="phone"] .ph, :root[data-idiom="tablet"] .ph{ display:flex } :root[data-idiom="mac"] .mc{ display:flex }
+.plus{ position:fixed; z-index:6; top:calc(12px + env(safe-area-inset-top,0px)); right:max(16px,env(safe-area-inset-right,0px)); width:48px; height:48px; border-radius:24px; overflow:hidden }
+.plus .ico{ position:absolute; right:13px; top:13px }
+.pmenu{ position:absolute; inset:0; padding:14px 8px 8px; opacity:0; pointer-events:none; display:grid; align-content:start; gap:2px }
+.pmenu b{ font-size:13px; color:var(--ink2); font-weight:600; padding:0 12px 6px }
+.pmenu button{ display:flex; align-items:center; gap:12px; height:44px; padding:0 12px; border-radius:14px; font-weight:600; text-align:left; white-space:nowrap }
+.mini{ position:fixed; z-index:5; left:0; right:0; margin:0 auto; width:min(calc(100vw - 32px), max(33.333vw, 340px), 520px); bottom:calc(88px + env(safe-area-inset-bottom,0px)); height:62px; border-radius:31px; align-items:center; gap:12px; padding:0 10px 0 9px }
+.art-dot{ width:44px; height:44px; border-radius:22px; background:var(--a,#ff5a7a); flex:none; position:relative } .art-dot::after{ content:""; position:absolute; inset:12px; border-radius:50%; background:var(--b,#ffd166) }
+.mini .tx{ flex:1; min-width:0 } .mini b{ display:block; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis } .mini span{ font-size:13px; color:var(--lg-ink-2) }
+.ppb{ width:44px; height:44px; border-radius:22px; display:grid; place-items:center }
+.tabs{ position:fixed; z-index:5; left:0; right:0; margin:0 auto; width:min(calc(100vw - 32px), max(33.333vw, 340px), 520px); bottom:calc(14px + env(safe-area-inset-bottom,0px)); height:64px; border-radius:32px; padding:4px; touch-action:none }
+.tab{ position:relative; z-index:1; flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; font-size:10.5px; font-weight:650; border-radius:28px; color:var(--lg-ink-2, var(--ink2)) }
+.tab[aria-current]{ color:var(--lg-tint, var(--accent)) }
+.restsel{ position:absolute; z-index:0; top:4px; bottom:4px; border-radius:28px; background:rgb(255 255 255 / .14); pointer-events:none }
+.lens{ position:absolute; z-index:0; pointer-events:none }
+/* ---------- functional layer: Mac ---------- */
+.side{ position:fixed; z-index:5; left:0; top:0; bottom:0; width:var(--sideW); flex-direction:column; gap:2px; padding:12px 10px; border-radius:0 }
+.side .srch{ display:flex; align-items:center; gap:6px; height:28px; padding:0 8px; border-radius:7px; background:rgb(255 255 255 / .08); margin:2px 0 14px; color:var(--ink2) }
+.side .srch input{ all:unset; flex:1; color:var(--ink); font-size:13px; min-width:0 }
+.side .srch input:focus-visible{ outline:3px solid #8ec1ff; outline-offset:6px; border-radius:2px }
+.side h3{ margin:14px 8px 4px; font-size:11px; font-weight:700; color:var(--ink2) }
+.side a{ display:flex; align-items:center; gap:8px; height:28px; padding:0 8px; border-radius:7px; color:var(--ink); text-decoration:none; font-size:13px }
+.side a .i{ color:var(--accent) }   /* macOS 27: sidebar icons keep their colour */
+.side a[aria-current]{ background:rgb(255 255 255 / .12) }
+.side a:hover{ background:rgb(255 255 255 / .06) }
+.tbar{ position:fixed; z-index:5; top:0; left:var(--sideW); right:0; height:var(--barH); align-items:center; gap:10px; padding:0 12px; border-radius:0 }
+.tbar .grp{ display:flex; gap:2px }
+.tbar .tb{ width:30px; height:28px; border-radius:7px; display:grid; place-items:center }
+.tbar .tb:hover:not([disabled]){ background:rgb(255 255 255 / .1) } .tbar .tb[disabled]{ opacity:.35; cursor:default }
+.tbar .ttl{ font-weight:700; font-size:13px; flex:1 }
+.np{ height:36px; width:min(380px, 40vw); border-radius:18px; background:rgb(255 255 255 / .08);   /* a toolbar item, not glass on glass */ display:flex; align-items:center; gap:10px; padding:0 6px; font-size:12px }
+.np .art-dot{ width:26px; height:26px } .np .art-dot::after{ inset:7px }
+.np .tx{ flex:1; min-width:0; line-height:1.2 } .np b{ display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis } .np span{ color:var(--ink2) }
+.np .ppb{ width:28px; height:28px }
+:root[data-idiom="mac"] #scrollc{ margin-left:var(--sideW) }
+.hint{ position:absolute; z-index:4; left:16px; right:16px; top:118px; text-align:left; font-size:12px; color:#ffffffb0; pointer-events:none; transition:opacity .6s }
+:root[data-idiom="mac"] .hint{ position:fixed; top:auto; bottom:18px; left:calc(var(--sideW) + 16px); text-align:center }
+</style>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="s-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.2 4.2"/></symbol>
+<symbol id="s-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="s-home" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/></symbol>
+<symbol id="s-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></symbol>
+<symbol id="s-radio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/></symbol>
+<symbol id="s-lib" viewBox="0 0 24 24"><path d="M5 4v16M10 4v16M15 5l4 15"/></symbol>
+<symbol id="s-play" viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z" fill="currentColor" stroke="none"/></symbol>
+<symbol id="s-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" stroke-width="3"/></symbol>
+<symbol id="s-shuffle" viewBox="0 0 24 24"><path d="M4 7h3l10 10h3M4 17h3l3-3M14 10l3-3h3M18 4l3 3-3 3M18 14l3 3-3 3"/></symbol>
+<symbol id="s-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="18" cy="12" r="1.4" fill="currentColor"/></symbol>
+<symbol id="s-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+<symbol id="s-fwd" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+<symbol id="s-pl" viewBox="0 0 24 24"><path d="M4 7h11M4 12h11M4 17h7M18 14v6M15 17h6"/></symbol>
+<symbol id="s-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></symbol>
+<symbol id="s-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></symbol>
+<symbol id="s-disc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/></symbol>
+<symbol id="s-note" viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="16" r="2"/></symbol>
+</defs></svg>
+
+<!-- ===== Mac: edge-to-edge sidebar + uniform toolbar ===== -->
+<nav class="side mc" id="side" data-gl data-role="sidebar" aria-label="Music">
+  <label class="srch"><svg class="i"><use href="#s-search"/></svg><input id="q" type="search" placeholder="Search" aria-label="Search albums"></label>
+  <h3>Apple Music</h3>
+  <a href="#home" aria-current="page" data-press><svg class="i"><use href="#s-home"/></svg>Home</a>
+  <a href="#new" data-press><svg class="i"><use href="#s-grid"/></svg>New</a>
+  <a href="#radio" data-press><svg class="i"><use href="#s-radio"/></svg>Radio</a>
+  <h3>Library</h3>
+  <a href="#recent" data-press><svg class="i"><use href="#s-clock"/></svg>Recently Added</a>
+  <a href="#artists" data-press><svg class="i"><use href="#s-mic"/></svg>Artists</a>
+  <a href="#albums" data-press><svg class="i"><use href="#s-disc"/></svg>Albums</a>
+  <a href="#songs" data-press><svg class="i"><use href="#s-note"/></svg>Songs</a>
+</nav>
+<header class="tbar mc" id="tbar" data-gl data-role="toolbar">
+  <div class="grp"><button class="tb" id="mBack" aria-label="Back" title="Back (⌘[)" disabled><svg class="i"><use href="#s-back"/></svg></button><button class="tb" aria-label="Forward" title="Forward (⌘])" disabled><svg class="i"><use href="#s-fwd"/></svg></button></div>
+  <div class="ttl" id="mTitle">Home</div>
+  <div class="np" id="np"><span class="art-dot"></span><span class="tx"><b class="npT">Starburster</b><span class="npA">Fontaines D.C.</span></span><button class="ppb" aria-label="Pause" title="Play/Pause (Space)"><svg class="i"><use href="#s-pause"/></svg></button></div>
+  <div class="grp"><button class="tb" id="mPlus" aria-label="New" title="New playlist (⌘N)"><svg class="i"><use href="#s-plus"/></svg></button><button class="tb" id="mMore" aria-label="More"><svg class="i"><use href="#s-more"/></svg></button></div>
+</header>
+
+<!-- ===== iPhone / iPad: floating controls, now playing accessory, tab bar with selection lens ===== -->
+<div class="plus ph" id="plus" data-gl data-role="control" data-group="1" role="button" tabindex="0" aria-label="New" aria-expanded="false">
+  <svg class="i ico" id="plusIco"><use href="#s-plus"/></svg>
+  <div class="pmenu" id="pmenu" role="menu"><b>Add to library</b><button role="menuitem"><svg class="i"><use href="#s-pl"/></svg>New Playlist</button><button role="menuitem"><svg class="i"><use href="#s-shuffle"/></svg>Shuffle All</button></div>
+</div>
+<div class="mini ph" id="mini" data-gl data-role="accessory" data-adapt="on"><span class="art-dot"></span><div class="tx"><b class="npT">Starburster</b><span class="npA">Fontaines D.C.</span></div><button class="ppb" aria-label="Pause"><svg class="i"><use href="#s-pause"/></svg></button></div>
+<nav class="tabs ph" id="tabs" data-gl data-role="bar" data-adapt="on" data-tint="#fa2d48" aria-label="Main">
+  <span class="restsel" id="restsel"></span><span class="lens" id="lens" data-gl data-role="lens"></span>
+  <button class="tab" aria-current="page"><svg class="i"><use href="#s-home"/></svg>Home</button><button class="tab"><svg class="i"><use href="#s-grid"/></svg>New</button><button class="tab"><svg class="i"><use href="#s-radio"/></svg>Radio</button><button class="tab"><svg class="i"><use href="#s-lib"/></svg>Library</button>
+</nav>
+<div class="hint" id="hint"></div>
+
+<main id="scrollc" data-layer="content"><div id="tiles" aria-label="Albums"></div><section id="detail" aria-live="polite"></section></main>
+
+<script>/* liquid-glass-gl.js — optical Liquid Glass renderer (tier T3). No dependencies. WebGL2.
+ * Part of the liquid-glass-ui skill. Rules it enforces are in references/master.md §3.6–3.9.
+ *
+ *   <canvas> is created behind the page; your content layer is drawn into it by drawBackdrop(ctx, W, H, t).
+ *   Every element with [data-gl] becomes a glass shape; the DOM keeps its text, icons, focus and accessibility.
+ *
+ *   data-gl                   marks a glass element (the element's box and border-radius are its shape)
+ *   data-role="control|bar|surface|accessory|lens"   which effects it gets (see ROLES)
+ *   data-group="1..3"         shapes in the same group may melt together, but ONLY while glass.morph(group, true)
+ *   data-adapt="on"           opt in to light/dark ink adaptation (smooth, delayed, hysteretic)
+ *
+ *   const glass = LiquidGlass.mount({ drawBackdrop, scrollEdge, config });
+ *   glass.morph(group, on)    allow melting for a group during a morph animation; switch off when it settles
+ *   glass.level(el, v)        visibility 0..1 (lens shows only while moving; shrink-away items)
+ *   glass.set(el, {dim, frost, press, glow, ...})   change an element's profile live (e.g. control -> surface)
+ *   glass.scale(el, s)        app-driven scale, composed with the press squash
+ *   glass.inkTowards(el, v)   drive ink 0 (light) .. 1 (dark) from a morph instead of the timer; null releases
+ *   glass.reduceTransparency(on) · glass.transparency(0..1) · glass.debug() · glass.destroy()
+ */
+(function (global) {
+  'use strict';
+  const ROLES = {
+    // refr: bend at the edge · disp: colour fringe · mag: magnifier · dim: darkening for text · frost: blur (px)
+    control:   { thick: 16, dim: .12, frost: 0,   refr: .45, disp: 0,   mag: 1,    press: 1,  glow: 1, layer: 0, rimDark: 0 },   // icon buttons: clearest, interactive
+    bar:       { thick: 16, dim: .16, frost: 0,   refr: .45, disp: 0,   mag: 1,    press: .5, glow: 1, layer: 0, rimDark: 0 },   // tab bar / toolbar: clear
+    accessory: { thick: 14, dim: .28, frost: 2.5, refr: .42, disp: 0,   mag: 1,    press: 0,  glow: 0, layer: 0, rimDark: 0 },   // now playing: light text help
+    surface:   { thick: 14, dim: .60, frost: 10,  refr: .40, disp: 0,   mag: 1,    press: 0,  glow: 0, layer: 0, rimDark: 0 },   // menus, popovers: text-heavy
+    sidebar:   { thick: 12, dim: .34, frost: 6,   refr: .35, disp: 0,   mag: 1,    press: 0,  glow: 0, layer: 0, rimDark: 0 },   // Mac/iPad sidebar: edge to edge, more opaque (macOS 27)
+    toolbar:   { thick: 12, dim: .22, frost: 4,   refr: .35, disp: 0,   mag: 1,    press: 0,  glow: 0, layer: 0, rimDark: 0 },   // Mac uniform toolbar band (macOS 27)
+    lens:      { thick: 22, dim: 0,   frost: 0,   refr: 1.4, disp: 1.4, mag: 1.16, press: 0,  glow: 0, layer: 1, rimDark: .55 }  // selection bubble: glass over glass, only while moving
+  };
+  const CONFIG = {
+    maxShapes: 10, mergeRadius: 18, bezelMax: 22, lensReach: 9,
+    appearSpring: [90, 13],                 // ONE appear transition for every glass element (consistency)
+    lightAngle: Math.atan2(.8, .6),         // light travels from the top-left
+    sweepOnAppear: 1.3,                     // seconds the light takes once around the silhouette on appear (0 = off)
+    dwell: .5, transition: .5, cooldown: 1, // adaptive ink: hold, fade, wait
+    morphRamp: .12,                         // merge factor ramp time (s)
+    maxDpr: 2, adaptiveResolution: true
+  };
+  const lin = (v) => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; };
+  const spring = (x, v, t, k, c, dt) => { const n = Math.max(1, Math.ceil(dt * 240)), h = dt / n; for (let i = 0; i < n; i++) { const a = -k * (x - t) - c * v; v += a * h; x += v * h; } return [x, v]; };   // sub-stepped: stable even for stiff springs at low frame rates
+
+  function mount(opts) {
+    opts = opts || {};
+    const C = Object.assign({}, CONFIG, opts.config || {}), R0 = Object.assign({}, ROLES, opts.roles || {}), N = C.maxShapes;
+    const doc = document, root = doc.documentElement, scope = opts.root || doc;
+    const mq = (q) => global.matchMedia && global.matchMedia(q).matches;
+    let RM = mq('(prefers-reduced-motion: reduce)'), RT = mq('(prefers-reduced-transparency: reduce)'), forceRT = false, tintAmt = 0;
+    const cv = opts.canvas || doc.createElement('canvas');
+    if (!opts.canvas) { cv.setAttribute('aria-hidden', 'true'); cv.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;display:block;z-index:0;pointer-events:none'; doc.body.prepend(cv); }
+    const bgc = doc.createElement('canvas'), bx = bgc.getContext('2d', { willReadFrequently: true });
+    const FS = `#version 300 es
+precision highp float;
+uniform sampler2D uBG; uniform vec2 uRes; uniform float uDpr; uniform int uN; uniform float uK; uniform vec2 uLdir;
+uniform vec4 uBox[${N}];  // cx, cy, halfW, halfH
+uniform vec4 uPar[${N}];  // radius, thickness, dim, glow
+uniform vec4 uSt[${N}];   // appear, glowX, glowY, frost
+uniform vec4 uOpt[${N}];  // refr, disp, mag, layer
+uniform vec4 uGrp[${N}];  // group, mergeFactor (0 at rest: never merge), rimDark, -
+uniform float uFlip; uniform float uSolid; uniform float uReach;   // uSolid: reduce transparency (0..1); uReach: max refraction reach (css px)
+out vec4 o;
+float sdb(vec2 p, vec4 b, float r){ vec2 q=abs(p-b.xy)-b.zw+r; return length(max(q,0.))+min(max(q.x,q.y),0.)-r; }
+float smin(float a,float b,float k){ float h=max(k-abs(a-b),0.)/k; return min(a,b)-h*h*k*.25; }
+float U2(float g,float d,float k){ return g>9e4 ? d : (k<.5 ? min(g,d) : smin(g,d,k)); }
+// Same-group shapes melt together (Apple's glass container); different groups never do; lens layer sits on top.
+float field(vec2 p, out int id){
+  float g0=1e5,g1=1e5,g2=1e5,g3=1e5, best=1e5, dt=1e5; int bid=0, tid=-1;
+  for(int i=0;i<${N};i++){ if(i>=uN) break; float di=sdb(p,uBox[i],uPar[i].x);
+    if(uOpt[i].w>.5){ if(di<dt){dt=di;tid=i;} continue; }
+    if(di<best){best=di;bid=i;}
+    int gi=int(uGrp[i].x);
+    float kk=uK*uGrp[i].y; if(gi==0) g0=U2(g0,di,kk); else if(gi==1) g1=U2(g1,di,kk); else if(gi==2) g2=U2(g2,di,kk); else g3=U2(g3,di,kk);   // merging only while a morph animates
+  }
+  float d=min(min(g0,g1),min(g2,g3));
+  if(tid>=0 && dt<0.){ id=tid; return dt; }
+  id=bid; return d;
+}
+float F(vec2 p){ int k; return field(p,k); }
+vec3 bgAt(vec2 p){ vec2 uv=clamp(p/uRes, vec2(.001), vec2(.999)); if(uFlip>.5) uv.y=1.-uv.y; return texture(uBG, uv).rgb; }
+vec3 bgB(vec2 p,float r){ if(r<.6) return bgAt(p); vec3 acc=vec3(0.); float ws=0.;
+  for(int i=0;i<16;i++){ float fi=float(i)+.5; float rr=r*sqrt(fi/16.); float an=fi*2.39996; float w=1.-.5*rr/r; acc+=bgAt(p+vec2(cos(an),sin(an))*rr)*w; ws+=w; }
+  return acc/ws; }
+void main(){
+  vec2 p=vec2(gl_FragCoord.x, uRes.y-gl_FragCoord.y);
+  int id; float d=field(p,id);
+  vec3 bg=bgAt(p);
+  float cov=1.-smoothstep(-.7*uDpr,.8*uDpr,d);
+  // interaction glow spreads from the fingertip across the element and its merged neighbours
+  if(cov<=.001){ o=vec4(bg,1.); return; }
+  // blend parameters across melted shapes of the same group, so a merge reads as ONE body (no seam)
+  float wS=0., T=0., dim=0., refr=0., disp=0., mag=0., app=0., Bz=0., fr=0.; vec2 cen=vec2(0.);
+  if(uOpt[id].w>.5){ wS=1.; T=uPar[id].y; dim=uPar[id].z; refr=uOpt[id].x; disp=uOpt[id].y; mag=uOpt[id].z; app=uSt[id].x; fr=uSt[id].w; Bz=min(uBox[id].z,uBox[id].w); cen=uBox[id].xy; }
+  else { float g=uGrp[id].x; float b0=sdb(p,uBox[id],uPar[id].x);
+    for(int i=0;i<${N};i++){ if(i>=uN) break; if(uOpt[i].w>.5 || abs(uGrp[i].x-g)>.5) continue;
+      float di=sdb(p,uBox[i],uPar[i].x); float kk=uK*uGrp[i].y; float w = (i==id) ? 1. : (kk<.5 ? 0. : exp(-max(di-b0,0.)/(kk*.35+1.)));
+      wS+=w; T+=w*uPar[i].y; dim+=w*uPar[i].z; refr+=w*uOpt[i].x; disp+=w*uOpt[i].y; mag+=w*uOpt[i].z; app+=w*uSt[i].x; fr+=w*uSt[i].w; Bz+=w*min(uBox[i].z,uBox[i].w); cen+=w*uBox[i].xy; }
+    T/=wS; fr/=wS; dim/=wS; refr/=wS; disp/=wS; mag/=wS; app/=wS; Bz/=wS; cen/=wS; }
+  float depth=max(-d,0.);
+  float B=min(22.*uDpr, Bz*.95);                         // flatter bevel (interview: B)
+  float t=clamp(depth/B,0.,1.);
+  float s2=sqrt(max(1.-(1.-t)*(1.-t),0.));
+  float slope=(T*uDpr*app)/B*(1.-t)/max(s2,.2);
+  float e=1.4*uDpr;
+  vec2 gr=vec2(F(p+vec2(e,0.))-F(p-vec2(e,0.)), F(p+vec2(0.,e))-F(p-vec2(0.,e)));
+  vec2 gdir=gr/max(length(gr),1e-4);
+  vec3 N=normalize(vec3(gdir*slope,1.));
+  vec2 ps=cen+(p-cen)/mix(1.,mag,app);                    // magnifier (lens role only)
+  vec3 eta=vec3(1./(1.5-.055*disp),1./1.5,1./(1.5+.06*disp));
+  vec3 Rr=refract(vec3(0,0,-1),N,eta.r), Rg=refract(vec3(0,0,-1),N,eta.g), Rb=refract(vec3(0,0,-1),N,eta.b);
+  float reach=(T*uDpr*app*1.05+3.*uDpr)*refr;
+  float frp=fr*uDpr*app; vec2 oR=Rr.xy/max(-Rr.z,.12)*reach, oG=Rg.xy/max(-Rg.z,.12)*reach, oB=Rb.xy/max(-Rb.z,.12)*reach; float mo=uReach*uDpr;
+  oR*=min(1.,mo/max(length(oR),1e-3)); oG*=min(1.,mo/max(length(oG),1e-3)); oB*=min(1.,mo/max(length(oB),1e-3));   // cap the reach: fringe stays a thin line at the rim
+  vec3 col=vec3(bgB(ps+oR,frp).r, bgB(ps+oG,frp).g, bgB(ps+oB,frp).b); // crystal clear: no blur, natural colour
+  col = dim>=0. ? col*(1.-dim*app) : mix(col, vec3(1.), -dim*app*.55);   // lightening is gentler than darkening, so dark-ink glass stays glassy, not milky   // dark ink lightens the glass, light ink darkens it
+  col*=1.-uGrp[id].z*(1.-smoothstep(0.,2.6*uDpr,depth))*app;          // lens: thin dark rim, like Apple's selection bubble
+  // Apple's highlight: ONE lit silhouette. Edges facing the light glow; the opposite edge catches the light passing through.
+  vec2 toL=-uLdir;
+  float band=1.-smoothstep(.0,1.7*uDpr,depth);
+  float key=pow(max(dot(gdir,toL),0.),2.2), thru=pow(max(dot(gdir,-toL),0.),2.2)*.42;
+  float inner=(1.-smoothstep(0.,7.*uDpr,depth))*pow(max(dot(gdir,toL),0.),3.)*.10;  // faint light inside the facing bevel
+  col+=vec3((band*(key+thru)*.85+inner)*app);
+  col+=uPar[id].w*exp(-length(p-uSt[id].yz)/(110.*uDpr))*vec3(.28,.30,.34);   // glow stays inside the pressed element
+  if(uSolid>0.){ float L=dot(col,vec3(.2126,.7152,.0722)); col=mix(col, dim>=0. ? vec3(.11,.115,.13) : vec3(.93,.935,.95), uSolid*.88); }   // Reduce Transparency: frosted-solid
+  col=mix(bg,col,cov*clamp(app*1.6,0.,1.));
+  o=vec4(col,1.);
+}`;
+    const VS = `#version 300 es\nin vec2 a; void main(){ gl_Position = vec4(a,0.,1.); }`;
+    let gl = null; try { gl = cv.getContext('webgl2', { antialias: false, alpha: false, powerPreference: 'high-performance' }); } catch (e) {}
+    let glp, U = {}, tex, fbo = null, compTex = null, DPR = 1, W = 0, H = 0, cap = C.maxDpr;
+    if (gl) {
+      const sh = (t, s) => { const x = gl.createShader(t); gl.shaderSource(x, s); gl.compileShader(x); if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; };
+      try { glp = gl.createProgram(); gl.attachShader(glp, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(glp, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(glp); gl.useProgram(glp); } catch (e) { console.warn('liquid-glass: shader failed, using fallback', e); gl = null; }
+    }
+    if (gl) {
+      const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW); const a = gl.getAttribLocation(glp, 'a'); gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
+      ['uBG', 'uRes', 'uDpr', 'uN', 'uK', 'uLdir', 'uBox', 'uPar', 'uSt', 'uOpt', 'uGrp', 'uFlip', 'uSolid', 'uReach'].forEach((n) => (U[n] = gl.getUniformLocation(glp, n)));
+      const tp = () => [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]].forEach(([k, v]) => gl.texParameteri(gl.TEXTURE_2D, k, v));
+      tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex); tp(); compTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, compTex); tp(); fbo = gl.createFramebuffer();
+    } else {
+      // Fallback: show the backdrop canvas itself; the DOM tier CSS (assets/dom) gives the elements a frosted look.
+      root.classList.add('lg-no-webgl'); bgc.setAttribute('aria-hidden', 'true'); bgc.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;display:block;z-index:0;pointer-events:none'; if (!opts.canvas) cv.replaceWith(bgc); else cv.after(bgc);
+    }
+    function resize() {
+      DPR = Math.min(global.devicePixelRatio || 1, cap); W = global.innerWidth; H = global.innerHeight;
+      const pw = Math.round(W * DPR), ph = Math.round(H * DPR); if (bgc.width === pw && bgc.height === ph) return;
+      bgc.width = pw; bgc.height = ph;
+      if (gl) { cv.width = pw; cv.height = ph; gl.viewport(0, 0, pw, ph); gl.bindTexture(gl.TEXTURE_2D, compTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, pw, ph, 0, gl.RGBA, gl.UNSIGNED_BYTE, null); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, compTex, 0); gl.bindFramebuffer(gl.FRAMEBUFFER, null); }
+    }
+    global.addEventListener('resize', resize); resize();
+
+    /* ---------- objects ---------- */
+    let objs = [];
+    const press = (o) => (ev) => { o.pressed = true; o.gx = ev.clientX; o.gy = ev.clientY; };
+    // data-tint="#rrggbb": an accent that stays legible on this glass. Light ink (dark glass) → tint lifted toward white;
+    // dark ink (light glass) → tint deepened toward black; follows the same faded tone as the ink. Read it as var(--lg-tint).
+    const hex = (h) => (h && /^#[0-9a-f]{6}$/i.test(h)) ? [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)) : null;
+    function tintInk(o, k) { const t = o.tint, m = (c, to, a) => Math.round(c + (to - c) * a); const lt = t.map((c) => m(c, 255, .55)), dk = t.map((c) => m(c, 0, .5)); o.e.style.setProperty('--lg-tint', `rgb(${lt.map((c, i) => m(c, dk[i], k)).join(' ')})`); }
+    function scan() {
+      const els = [...scope.querySelectorAll('[data-gl]')].filter((e) => e.getClientRects().length).slice(0, N);   // display:none elements do not take a slot
+      objs = els.map((e, i) => {
+        const old = objs.find((x) => x.e === e); if (old) return old;
+        const role = R0[e.dataset.role] ? e.dataset.role : 'control';
+        const o = { e, tint: hex(e.dataset.tint), role, r: Object.assign({}, R0[role]), group: +(e.dataset.group || 0), adaptOn: e.dataset.adapt === 'on', appear: 0, vA: 0, t0: now + .15 + i * .06, press: 0, vP: 0, pressed: false, gx: -999, gy: -999, lvl: 1, userScale: 1, tn: 0, tnLin: 0, toneTarget: 0, pend: null, pendT: 0, lastFlip: -9, init: false, kf: 0, inkLock: null };
+        if (o.r.press || o.r.glow) { e.addEventListener('pointerdown', press(o)); e.addEventListener('pointermove', (ev) => { if (o.pressed) { o.gx = ev.clientX; o.gy = ev.clientY; } }); ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => e.addEventListener(t, () => (o.pressed = false))); }
+        if (o.tint) tintInk(o, 0);
+        return o; });
+    }
+    let now = 0; scan();
+    const byEl = (el) => objs.find((o) => o.e === el);
+    const morphOn = new Set(), kfs = {};
+
+    /* ---------- light ---------- */
+    let light = C.lightAngle, sweep = (RM || !C.sweepOnAppear) ? 0 : 1;
+
+    /* ---------- scroll edge (Apple soft style): content fades under floating bars ---------- */
+    function scrollEdge(ctx) {
+      const se = opts.scrollEdge; if (!se) return; const col = se.color || '18,19,23';
+      if (se.top) { const a = (typeof se.topAlpha === 'function' ? se.topAlpha() : (se.topAlpha ?? .85)); if (a > 0) { const g = ctx.createLinearGradient(0, 0, 0, se.top); g.addColorStop(0, `rgba(${col},${a})`); g.addColorStop(1, `rgba(${col},0)`); ctx.fillStyle = g; ctx.fillRect(0, 0, W, se.top); } }
+      if (se.bottom) { const st = se.bottomStops || [[0, 0], [.45, .5], [.7, .78], [1, .86]]; const g = ctx.createLinearGradient(0, H - se.bottom, 0, H); st.forEach(([p, a]) => g.addColorStop(p, `rgba(${col},${a})`)); ctx.fillStyle = g; ctx.fillRect(0, H - se.bottom, W, se.bottom); }
+    }
+
+    /* ---------- adaptive ink (opt-in): time-averaged, delayed, faded, cooled down ---------- */
+    let tick = 0;
+    function adapt(dt) {
+      if (++tick % 2 === 0) objs.forEach((o) => {
+        if (!o.adaptOn || o.inkLock !== null) return; const r = o.e.getBoundingClientRect(); let L = 0, n = 0;
+        for (let gy = 0; gy < 3; gy++) for (let gx = 0; gx < 4; gx++) { const x = Math.round((r.left + r.width * (gx + .5) / 4) * DPR), y = Math.round((r.top + r.height * (gy + .5) / 3) * DPR); if (x < 0 || y < 0 || x >= bgc.width || y >= bgc.height) continue; const d = bx.getImageData(x, y, 1, 1).data; L += .2126 * lin(d[0]) + .7152 * lin(d[1]) + .0722 * lin(d[2]); n++; }
+        if (!n) return; L /= n; o.Lavg = o.Lavg === undefined ? L : o.Lavg + (L - o.Lavg) * Math.min(1, (now - (o.Lt || now)) / .35 + .02); o.Lt = now; L = o.Lavg;
+        const dm = o.r.dim, cl = 1.05 / (L * (1 - dm) + .05), cd = (L * (1 - dm) + dm + .05) / .055;
+        if (!o.init) { o.init = true; o.toneTarget = o.tnLin = cd > cl ? 1 : 0; o.lastFlip = now; return; }
+        const cur = o.toneTarget, want = cur === 0 ? (cd > cl * 1.15 ? 1 : 0) : (cl > cd * 1.15 ? 0 : 1);
+        if (want === cur) { o.pend = null; return; }
+        if (o.pend !== want) { o.pend = want; o.pendT = now; return; }
+        if (now - o.pendT >= C.dwell && now - o.lastFlip >= C.cooldown) { o.toneTarget = want; o.lastFlip = now; o.pend = null; }
+      });
+      objs.forEach((o) => {
+        if (!o.adaptOn && o.inkLock === null) return;
+        if (o.inkLock !== null) o.tnLin = o.inkLock; else if (o.tnLin !== o.toneTarget) o.tnLin += Math.sign(o.toneTarget - o.tnLin) * Math.min(Math.abs(o.toneTarget - o.tnLin), dt / (RM ? .15 : C.transition));
+        const k = o.tnLin * o.tnLin * (3 - 2 * o.tnLin); if (k === o.tn && o.inked) return; o.tn = k; o.inked = true;
+        const c = Math.round(255 - 244 * k), b = Math.round(255 - 239 * k), ink = `rgb(${c} ${c} ${b})`;
+        o.e.style.color = ink; o.e.style.setProperty('--lg-ink', ink); if (o.tint) tintInk(o, k); o.e.style.setProperty('--lg-ink-2', `rgb(${c} ${c} ${b} / .74)`);
+      });
+    }
+
+    /* ---------- frame ---------- */
+    const bx4 = new Float32Array(N * 4), par = new Float32Array(N * 4), st = new Float32Array(N * 4), opt = new Float32Array(N * 4), grp = new Float32Array(N * 4);
+    let last = performance.now(), slow = 0, raf = 0, alive = true;
+    function pack(list) {
+      let n = 0;
+      list.forEach((o) => {
+        const r = o.e.getBoundingClientRect(), cs = getComputedStyle(o.e), a = Math.max(0, Math.min(1.15, o.appear)) * o.lvl * (+cs.opacity); if (r.width < 2 || a < .005 || n >= N) return;
+        if (cs.visibility === 'hidden' || cs.display === 'none') return;   // CSS opacity fades the glass with its content
+        const sc = r.width / (o.e.offsetWidth || r.width), hw = r.width / 2 * DPR, hh = r.height / 2 * DPR, i4 = n * 4, q = o.r;
+        bx4.set([(r.left + r.width / 2) * DPR, (r.top + r.height / 2) * DPR, hw, hh], i4);
+        par.set([Math.min(parseFloat(cs.borderTopLeftRadius) * sc * DPR || 0, hw, hh), q.thick * (1 + .3 * o.press * q.press), q.dim * (1 - 2 * (o.tn || 0)), q.glow * o.press], i4);
+        st.set([a, o.gx * DPR, o.gy * DPR, q.frost || 0], i4); opt.set([q.refr, q.disp * (q.layer ? o.lvl : 1), q.mag, q.layer], i4); grp.set([o.group, o.group ? (kfs[o.group] || 0) : 0, q.rimDark || 0, 0], i4); n++;
+      });
+      return n;
+    }
+    function pass(list, src, fb, flip) {
+      const n = pack(list); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.viewport(0, 0, cv.width, cv.height); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src);
+      gl.uniform1i(U.uBG, 0); gl.uniform1f(U.uFlip, flip ? 1 : 0); gl.uniform1f(U.uSolid, (RT || forceRT) ? 1 : tintAmt * .6); gl.uniform1f(U.uReach, C.lensReach);
+      gl.uniform2f(U.uRes, cv.width, cv.height); gl.uniform1f(U.uDpr, DPR); gl.uniform1i(U.uN, n); gl.uniform1f(U.uK, C.mergeRadius * DPR); gl.uniform2f(U.uLdir, Math.cos(light), Math.sin(light));
+      gl.uniform4fv(U.uBox, bx4); gl.uniform4fv(U.uPar, par); gl.uniform4fv(U.uSt, st); gl.uniform4fv(U.uOpt, opt); gl.uniform4fv(U.uGrp, grp); gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    function frame(tm) {
+      if (!alive) return;
+      const raw = (tm - last) / 1000, dt = Math.min(.04, Math.max(0, raw)); last = tm; now += dt;
+      if (C.adaptiveResolution && !/[?&]fixed\b/.test(location.search)) { slow = raw > .034 ? slow + 1 : Math.max(0, slow - 1); if (slow > 24 && cap > 1) { cap = Math.max(1, cap - .5); slow = 0; resize(); } }
+      if (sweep > 0 && now > .2) { sweep = Math.max(0, sweep - dt / C.sweepOnAppear); light = C.lightAngle + (1 - sweep) * Math.PI * 2; if (!sweep) light = C.lightAngle; }
+      Object.keys(kfs).concat([...morphOn]).forEach((g) => { kfs[g] = (kfs[g] || 0) + ((morphOn.has(+g) ? 1 : 0) - (kfs[g] || 0)) * Math.min(1, dt / C.morphRamp); });
+      const ap = RM ? [900, 80] : C.appearSpring;
+      objs.forEach((o) => { if (RM) { o.appear = 1; o.vA = 0; } else if (now > o.t0) [o.appear, o.vA] = spring(o.appear, o.vA, 1, ap[0], ap[1], dt); /* reduced motion: glass is simply there */ [o.press, o.vP] = spring(o.press, o.vP, o.pressed ? 1 : 0, RM ? 900 : 260, RM ? 80 : 15, dt); const s = (1 - .04 * o.press * o.r.press * (RM ? 0 : 1)) * o.userScale; o.e.style.scale = String(s); });
+      bx.setTransform(DPR, 0, 0, DPR, 0, 0); if (opts.drawBackdrop) opts.drawBackdrop(bx, W, H, now); scrollEdge(bx);
+      if (api.backdropDim > 0) { bx.fillStyle = `rgba(0,0,0,${Math.min(.9, api.backdropDim)})`; bx.fillRect(0, 0, W, H); }   // modal dim lives INSIDE the refracted backdrop, so a sheet's glass bends the dimmed page
+      adapt(dt);
+      if (gl) {
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bgc);
+        const base = objs.filter((o) => !o.r.layer), top = objs.filter((o) => o.r.layer && o.appear * o.lvl > .005);
+        if (top.length) { pass(base, tex, fbo, false); pass(top, compTex, null, true); } else pass(base, tex, null, false);
+      }
+      raf = global.requestAnimationFrame(frame);
+    }
+    ['(prefers-reduced-motion: reduce)', '(prefers-reduced-transparency: reduce)'].forEach((q) => { try { global.matchMedia(q).addEventListener('change', () => { RM = mq('(prefers-reduced-motion: reduce)'); RT = mq('(prefers-reduced-transparency: reduce)'); }); } catch (e) {} });
+    raf = global.requestAnimationFrame(frame);
+
+    const api = {
+      backdropDim: 0,
+      config: C, roles: R0, get webgl() { return !!gl; }, get now() { return now; },
+      refresh: scan,
+      morph(group, on) { on ? morphOn.add(+group) : morphOn.delete(+group); },
+      level(el, v) { const o = byEl(el); if (o) o.lvl = Math.max(0, Math.min(1, v)); },
+      set(el, patch) { const o = byEl(el); if (o) Object.assign(o.r, patch); },
+      role(el) { const o = byEl(el); return o ? Object.assign({}, R0[o.role]) : null; },
+      scale(el, s) { const o = byEl(el); if (o) o.userScale = s; },
+      inkTowards(el, v) { const o = byEl(el); if (o) { o.inkLock = v === null ? null : Math.max(0, Math.min(1, v)); if (v === null) { o.toneTarget = o.tnLin > .5 ? 1 : 0; o.pend = null; } } },
+      reduceTransparency(on) { forceRT = !!on; },
+      // iOS/macOS 27 transparency slider: 0 = clear (default, owner's look) … 1 = tinted (more opaque, calmer over busy content)
+      transparency(v) { tintAmt = Math.max(0, Math.min(1, +v || 0)); return tintAmt; },
+      debug() { return objs.map((o) => ({ el: o.e.id || o.e.className, role: o.role, group: o.group, appear: +o.appear.toFixed(3), level: o.lvl, merge: +((o.group && kfs[o.group]) || 0).toFixed(3), ink: +o.tn.toFixed(3), toneTarget: o.toneTarget, adapt: o.adaptOn, luma: o.Lavg })); },
+      destroy() { alive = false; global.cancelAnimationFrame(raf); global.removeEventListener('resize', resize); }
+    };
+    (global.LiquidGlass.instances = global.LiquidGlass.instances || []).push(api);   // lets the audit script find mounted renderers
+    return api;
+  }
+  global.LiquidGlass = { mount, ROLES, CONFIG, version: '0.6.0' };
+})(window);
+</script>
+<script>/* liquid-ux.js — Apple-style interaction runtime for the web (liquid-glass-ui-ux skill). No dependencies.
+ * Rules and sources: references/ux.md. Every behaviour here follows Apple's fluid-interface principles:
+ * respond instantly, track 1:1, stay interruptible, project momentum, rubber-band soft edges, springs (duration + bounce).
+ *
+ *   LUX.init({ autoPress: true, haptics: true })
+ *   LUX.press        delegated press feedback for [data-press] (and every button/link/[role=button] with autoPress)
+ *   LUX.sheet(opts)  a card that rises over the current page instead of navigating away (detents, drag, projection)
+ *   LUX.overscroll(scroller, { content, onRefresh })   rubber-band edges + optional pull-to-refresh
+ *   LUX.load(el, promise, { skeleton, render, delay, minShow })   skeleton without flash, then crossfade
+ *   LUX.swipe(row, { actions })   swipe actions on list rows
+ *   LUX.context(el, { items })    touch-and-hold / right-click context menu with a lifted preview
+ *   LUX.haptic(type)   light | medium | heavy | selection | success | warning | error (no-op where unsupported)
+ *   LUX.toast(text, { action, onAction })   non-blocking feedback with optional Undo
+ *   LUX.spring, LUX.rubber, LUX.project      the physics, exported
+ */
+(function (global) {
+  'use strict';
+  const doc = document, root = doc.documentElement;
+  const mq = (q) => global.matchMedia && global.matchMedia(q).matches;
+  const RM = () => mq('(prefers-reduced-motion: reduce)');
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  const LUX = { opts: { autoPress: true, haptics: true }, _sheets: [] };
+
+  /* =============================== idiom: feel like the Apple app for THIS device =============================== */
+  // phone  = iPhone patterns (compact width, touch): tab bar, rising sheets with detents, 17pt text, 44pt targets, haptics
+  // tablet = iPad patterns (regular width, touch): sidebar or top tab bar, form sheets / popovers, touch physics
+  // mac    = Mac patterns (wide, fine pointer + keyboard): sidebar + uniform toolbar, inline detail instead of modals,
+  //          13pt text, 28pt controls, hover states, right-click menus, keyboard shortcuts, no haptics, no squash on click
+  LUX.idiom = function () {
+    const w = global.innerWidth, fine = mq('(pointer: fine)') && mq('(hover: hover)'), coarse = mq('(pointer: coarse)');
+    const forced = root.getAttribute('data-idiom-force'); if (forced) return forced;
+    if (w < 700) return 'phone'; if (fine && w >= 900) return 'mac'; return coarse || !fine ? 'tablet' : 'mac';
+  };
+  const setIdiom = () => { const i = LUX.idiom(); if (root.dataset.idiom !== i) { root.dataset.idiom = i; global.dispatchEvent(new CustomEvent('lux:idiom', { detail: i })); } };
+  LUX.isTouchIdiom = () => LUX.idiom() !== 'mac';
+
+  /* =============================== physics =============================== */
+  // Apple (WWDC23 Animate with springs): stiffness = (2π/duration)², damping ratio ζ = 1 − bounce (bounce ≥ 0), mass 1.
+  // Defaults: bounce 0. Add bounce (≤ .3) only when a gesture with momentum ends the motion.
+  LUX.springParams = (duration = .5, bounce = 0) => { const w = 2 * Math.PI / duration; const z = bounce >= 0 ? 1 - bounce : 1 / (1 + bounce); return { k: w * w, c: 2 * z * w }; };
+  // Animate a value with a spring, starting from any velocity (units/s). Interruptible: returns a handle with stop().
+  LUX.spring = function (from, to, opts, onUpdate, onDone) {
+    opts = opts || {}; const { k, c } = LUX.springParams(opts.duration ?? .5, opts.bounce ?? 0);
+    let x = from, v = opts.velocity || 0, alive = true, last = performance.now(), raf;
+    if (RM() || opts.instant) { onUpdate(to, 0); onDone && onDone(); return { stop() {}, get value() { return to; }, get velocity() { return 0; } }; }
+    const step = (t) => { if (!alive) return; let dt = Math.min(.05, (t - last) / 1000); last = t; const n = Math.max(1, Math.ceil(dt * 240)), h = dt / n;
+      for (let i = 0; i < n; i++) { const a = -k * (x - to) - c * v; v += a * h; x += v * h; }
+      const done = Math.abs(x - to) < (opts.epsilon ?? .3) && Math.abs(v) < (opts.vEpsilon ?? 8);
+      if (done) { x = to; v = 0; } onUpdate(x, v); if (done) { alive = false; onDone && onDone(); } else raf = requestAnimationFrame(step); };
+    raf = requestAnimationFrame(step);
+    return { stop() { alive = false; cancelAnimationFrame(raf); }, get value() { return x; }, get velocity() { return v; } };
+  };
+  // Rubber band (the elastic edge people expect from iOS scroll views): resistance grows with distance; never a hard stop.
+  LUX.rubber = (overshoot, dim, c = .55) => { const s = Math.sign(overshoot), x = Math.abs(overshoot); return s * (1 - 1 / ((x * c / dim) + 1)) * dim; };
+  // Momentum projection (WWDC18 sample code): where a thrown object would come to rest. rate .998 = normal deceleration.
+  LUX.project = (velocityPxPerS, rate = .998) => (velocityPxPerS / 1000) * rate / (1 - rate);
+  // Velocity from pointer history (last ~80ms), not just the last two events.
+  function tracker() { const h = []; return { add(x, y) { const t = performance.now(); h.push({ x, y, t }); while (h.length > 2 && t - h[0].t > 80) h.shift(); },
+    vel() { if (h.length < 2) return { x: 0, y: 0 }; const a = h[0], b = h[h.length - 1], dt = Math.max(1, b.t - a.t) / 1000; return { x: (b.x - a.x) / dt, y: (b.y - a.y) / dt }; }, reset() { h.length = 0; } }; }
+  LUX.tracker = tracker;
+  const SLOP = 10; // Apple: hysteresis is "usually 10 points"
+
+  /* =============================== haptics =============================== */
+  // Apple's patterns by meaning. Web: navigator.vibrate exists on Android Chrome; iOS Safari has no web haptics (silent no-op).
+  const HAP = { light: [8], medium: [14], heavy: [22], soft: [6], rigid: [10], selection: [4], success: [10, 60, 14], warning: [16, 80, 16], error: [12, 50, 12, 50, 18] };
+  LUX.haptic = (type) => { if (!LUX.opts.haptics || LUX.idiom() === 'mac') return; try { if (navigator.vibrate) navigator.vibrate(HAP[type] || HAP.light); } catch (e) {} };
+
+  /* =============================== press feedback (everything touchable) =============================== */
+  // Highlight on touch-down, confirm on touch-up, cancel by moving off or past the slop; no delay; keyboard gets the same.
+  const PRESS_SEL = '[data-press], button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="switch"], summary, label[for], input[type="checkbox"], input[type="radio"]';
+  let pressed = null;
+  function pressStart(e) {
+    if (e.button > 0) return; const el = e.target.closest(LUX.opts.autoPress ? PRESS_SEL : '[data-press]'); if (!el || el.closest('[data-press="off"]')) return;
+    if (el.disabled || el.getAttribute('aria-disabled') === 'true') { nudge(el); return; }   // indicate when an action is not available
+    pressed = { el, x: e.clientX, y: e.clientY, id: e.pointerId }; el.setAttribute('data-pressed', ''); el.style.setProperty('--lux-px', (e.clientX - el.getBoundingClientRect().left) + 'px'); el.style.setProperty('--lux-py', (e.clientY - el.getBoundingClientRect().top) + 'px');
+  }
+  function pressMove(e) { if (!pressed || e.pointerId !== pressed.id) return; if (Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) > SLOP * 1.5) pressEnd(); }
+  function pressEnd() { if (!pressed) return; pressed.el.removeAttribute('data-pressed'); pressed = null; }
+  function nudge(el) { if (RM()) return; el.animate([{ translate: '0' }, { translate: '-4px' }, { translate: '4px' }, { translate: '-2px' }, { translate: '0' }], { duration: 260, easing: 'ease-out' }); LUX.haptic('rigid'); }
+  LUX.nudge = nudge;
+
+  /* =============================== overscroll: rubber-band edges + pull to refresh =============================== */
+  // scroller: element that scrolls (or window). content: element to stretch (translateY). Native bounce (iOS Safari) is left alone.
+  // gestures that start on overlays or fixed chrome (sheets, menus, glass bars) belong to them, not to the page's edge
+  const FOREIGN = '.lux-sheet, .lux-backdrop, .lux-ctx-layer, .lux-toast, [role="dialog"], [data-gl]:not([data-layer="content"] [data-gl]), [data-lux-chrome]';
+  LUX.overscroll = function (scroller, o) {
+    o = o || {}; const isWin = scroller === global || scroller === doc.scrollingElement || scroller === doc.body;
+    const sc = isWin ? doc.scrollingElement : scroller, content = o.content || (isWin ? doc.body : scroller.firstElementChild); content.setAttribute('data-lux-overscroll', '');   // lets tests find the stretching layer
+    const nativeBounce = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const dim = () => (isWin ? innerHeight : sc.clientHeight);
+    let off = 0, anim = null, touch = null, wheelT = 0, refreshing = false, armed = false;
+    const TH = o.threshold || 70;   // pull distance (after rubber banding) that arms a refresh
+    const atTop = () => sc.scrollTop <= 0, atBottom = () => Math.ceil(sc.scrollTop + (isWin ? innerHeight : sc.clientHeight)) >= sc.scrollHeight - 1;
+    const spinner = o.onRefresh ? (() => { const s = doc.createElement('div'); s.className = 'lux-refresh'; s.setAttribute('role', 'status'); s.setAttribute('aria-label', 'Refreshing'); s.innerHTML = '<i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>'; (o.spinnerHost || (isWin ? doc.body : scroller)).prepend(s); return s; })() : null;
+    const apply = (y) => { off = y; content.style.translate = y ? `0 ${y}px` : ''; if (o.onOffset) o.onOffset(y);
+      if (spinner) { const p = clamp(y / TH, 0, 1); spinner.style.opacity = String(y > 4 ? Math.min(1, p * 1.4) : 0); spinner.style.setProperty('--p', p); spinner.toggleAttribute('data-spin', refreshing); if (!refreshing && o.onRefresh) { const a = y >= TH; if (a && !armed) LUX.haptic('light'); armed = a; } } };
+    const settle = (vel) => { anim && anim.stop(); const target = refreshing ? TH * .8 : 0; anim = LUX.spring(off, target, { duration: .5, bounce: 0, velocity: vel || 0 }, (y) => apply(y)); };
+    const release = (vel) => { if (o.onRefresh && armed && !refreshing && off > 0) { refreshing = true; armed = false; LUX.haptic('medium'); Promise.resolve(o.onRefresh()).finally(() => { refreshing = false; settle(0); }); } settle(vel); };
+    // touch (Android, desktop touch). iOS keeps its native bounce.
+    if (!nativeBounce) {
+      sc.style.overscrollBehaviorY = 'none';   // replace the browser glow/stretch with the elastic edge
+      const tgt = isWin ? global : scroller; const tr = tracker();
+      tgt.addEventListener('touchstart', (e) => { if (e.touches.length !== 1 || (e.target.closest && e.target.closest(FOREIGN))) { touch = null; return; } anim && anim.stop(); tr.reset(); touch = { y0: e.touches[0].clientY, base: off, raw: 0, edge: null }; tr.add(0, e.touches[0].clientY); }, { passive: true });
+      tgt.addEventListener('touchmove', (e) => { if (!touch) return; const y = e.touches[0].clientY, dy = y - touch.y0; tr.add(0, y);
+        if (!touch.edge) { if (dy > 0 && atTop()) touch.edge = 'top'; else if (dy < 0 && atBottom()) touch.edge = 'bottom'; else return; touch.y0 = y - (touch.base ? 0 : 0); touch.start = y; }
+        const raw = y - touch.start + (touch.baseRaw || 0); if ((touch.edge === 'top' && raw < 0) || (touch.edge === 'bottom' && raw > 0)) { apply(0); touch.edge = null; return; }
+        if (e.cancelable) e.preventDefault(); apply(LUX.rubber(raw, dim())); }, { passive: false });
+      tgt.addEventListener('touchend', () => { if (!touch) return; const v = tr.vel().y; touch = null; if (off) release(v * .2); }, { passive: true });
+      tgt.addEventListener('touchcancel', () => { touch = null; if (off) release(0); }, { passive: true });
+    }
+    // wheel / trackpad at an edge: stretch, then spring back when the gesture pauses
+    let wraw = 0; (isWin ? global : scroller).addEventListener('wheel', (e) => { if (e.target.closest && e.target.closest(FOREIGN)) return;
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      if (!(dy < 0 && atTop()) && !(dy > 0 && atBottom()) && !wraw) return;
+      if (e.cancelable && (wraw || (dy < 0 && atTop()) || (dy > 0 && atBottom()))) e.preventDefault();
+      anim && anim.stop(); wraw = clamp(wraw - dy * .5, -dim(), dim()); if ((off > 0 && wraw < 0) || (off < 0 && wraw > 0)) wraw = 0; apply(LUX.rubber(wraw, dim()));
+      clearTimeout(wheelT); wheelT = setTimeout(() => { wraw = 0; release(0); }, 140);
+    }, { passive: false });
+    return { get offset() { return off; }, refresh: () => { if (o.onRefresh && !refreshing) { armed = true; apply(TH); release(0); } } };
+  };
+
+  /* =============================== skeleton loading =============================== */
+  // Apple: show something as soon as possible; never a blank screen. Web rule: don't flash a skeleton for fast loads
+  // (show only after `delay`), and once shown keep it at least `minShow` so it does not flicker; then crossfade.
+  LUX.load = function (el, promise, o) {
+    o = Object.assign({ delay: 120, minShow: 350, fade: 180 }, o || {}); let shownAt = 0, done = false;
+    const showSk = () => { if (done) return; el.innerHTML = typeof o.skeleton === 'function' ? o.skeleton() : (o.skeleton || LUX.skeleton.lines(3)); el.setAttribute('aria-busy', 'true'); shownAt = performance.now(); };
+    const t = o.delay <= 0 ? (showSk(), 0) : setTimeout(showSk, o.delay);
+    return Promise.resolve(promise).then((data) => new Promise((res) => {
+      const finish = () => { done = true; clearTimeout(t); el.removeAttribute('aria-busy'); el.innerHTML = o.render ? o.render(data) : String(data); if (shownAt && !RM()) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: o.fade, easing: 'ease-out' }); res(data); };
+      const wait = shownAt ? Math.max(0, o.minShow - (performance.now() - shownAt)) : 0; wait ? setTimeout(finish, wait) : finish();
+    }), (err) => { done = true; clearTimeout(t); el.removeAttribute('aria-busy'); el.innerHTML = o.error ? o.error(err) : '<p class="lux-error">Couldn’t load this. Check your connection and try again.</p>'; throw err; });
+  };
+  LUX.skeleton = {
+    lines: (n = 3, w = [92, 76, 58]) => Array.from({ length: n }, (_, i) => `<span class="lux-sk lux-sk-line" style="width:${w[i % w.length]}%"></span>`).join(''),
+    block: (h = 160, r = 16) => `<span class="lux-sk" style="height:${h}px;border-radius:${r}px"></span>`,
+    row: (thumb = 44) => `<span class="lux-sk-row"><span class="lux-sk" style="width:${thumb}px;height:${thumb}px;border-radius:10px"></span><span class="lux-sk-col">${'<span class="lux-sk lux-sk-line" style="width:70%"></span><span class="lux-sk lux-sk-line" style="width:40%"></span>'}</span></span>`
+  };
+
+  /* =============================== sheet: a card that rises over the page =============================== */
+  // Use instead of navigating to a new page when the task or entity detail is scoped and the person will come back
+  // (references/ux.md §2). Grows out of its source, rests at detents, follows the finger 1:1, projects the throw,
+  // rubber-bands past the top, hands off to its own scroll, closes by swipe, Close button, backdrop or Escape.
+  LUX.sheet = function (o) {
+    o = Object.assign({ detents: ['medium', 'large'], start: null, title: '', closeLabel: 'Close', glass: true, onClose: null, inert: null }, o || {});
+    const idiom = LUX.idiom(), compact = () => idiom === 'phone';
+    const H = () => innerHeight, topInset = () => Math.max(10, (parseFloat(getComputedStyle(root).getPropertyValue('--lux-top')) || 0)) + (compact() ? 10 : 0);
+    const detentY = (d) => { const h = H(); if (!compact()) return Math.max(24, h * .1); if (d === 'large') return topInset() + 14; if (d === 'medium') return Math.round(h * .5); return typeof d === 'number' ? h - d : h * .5; };
+    const backdrop = doc.createElement('div'); backdrop.className = 'lux-backdrop';
+    const el = doc.createElement('section'); el.className = 'lux-sheet' + (compact() ? '' : ' lux-sheet-wide'); el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); if (o.title || o.label) el.setAttribute('aria-label', o.title || o.label);   // label: accessible name when the content carries its own heading
+    if (o.glass) { el.setAttribute('data-gl', ''); el.dataset.role = 'surface'; }
+    el.dataset.idiom = idiom;
+    // iPhone/iPad: grabber + title + Close (X) at top trailing. Mac: title at top, buttons at bottom trailing (Done = default, Return).
+    el.innerHTML = idiom === 'mac'
+      ? `<header class="lux-sheet-h"><h2 class="lux-sheet-t">${o.title || ''}</h2></header><div class="lux-sheet-b"></div><footer class="lux-sheet-f">${(o.actions || [{ label: 'Done', primary: true }]).map((a, i) => `<button data-a="${i}" class="${a.primary ? 'lux-primary' : ''}">${a.label}</button>`).join('')}</footer><button class="lux-close lux-sr" aria-label="${o.closeLabel}"></button>`
+      : `<div class="lux-grab" role="button" tabindex="0" aria-label="Resize"></div><header class="lux-sheet-h"><h2 class="lux-sheet-t">${o.title || ''}</h2><button class="lux-close" aria-label="${o.closeLabel}"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button></header><div class="lux-sheet-b"></div>`;
+    const body = el.querySelector('.lux-sheet-b'); if (o.content instanceof Node) body.append(o.content); else if (o.content) body.innerHTML = o.content;
+    LUX._sheets.forEach((s) => s.close(true)); doc.body.append(backdrop, el); LUX._sheets = [api()]; root.classList.add('lux-sheet-open');   // one sheet at a time
+    const inertEl = o.inert === null ? doc.querySelector('main, [data-lux-page]') : o.inert; if (inertEl) inertEl.inert = true;
+    const page = doc.querySelector('[data-lux-page]');   // optional: the page behind recedes like iOS's card stack
+    const prevFocus = (o.source && o.source.focus) ? o.source : doc.activeElement;   // iOS does not focus tapped buttons; return to the item that opened it
+    let y = H(), anim = null, cur = o.start || o.detents[0], closing = false;
+    const sheetH = () => (compact() ? H() - detentY('large') + 40 : Math.min(H() * .8, o.height || 640));
+    el.style.height = sheetH() + 'px';
+    const render = (yy) => {
+      y = yy; const top = compact() ? yy : yy; el.style.translate = compact() ? `0 ${top}px` : `-50% ${top}px`;
+      const m = detentY(o.detents[0]), L = detentY('large'), p = clamp((H() - yy) / (H() - L), 0, 1), full = clamp((m - yy) / Math.max(1, m - L), 0, 1);
+      const dimV = compact() ? (.18 + .22 * full) * p : .4 * p;   // partial sheets keep context visible
+      const G = global.LiquidGlass && global.LiquidGlass.instances && global.LiquidGlass.instances[0];
+      if (G && G.webgl) { G.backdropDim = dimV; backdrop.style.opacity = '0'; } else backdrop.style.opacity = String(dimV);
+      // The optical renderer paints all glass on one canvas BELOW the DOM, so DOM chrome under the sheet would show through it.
+      // Anything the sheet covers ([data-gl] and [data-lux-chrome]) is hidden while covered: iOS draws the sheet above the tab bar.
+      if (G && G.webgl) doc.querySelectorAll('[data-gl]:not(.lux-sheet):not(.lux-ctx):not(.lux-toast), [data-lux-chrome]').forEach((x) => { const r = x.getBoundingClientRect(); x.toggleAttribute('data-lux-covered', r.width > 0 && r.bottom > yy + 4); });
+      el.style.setProperty('--lux-full', full.toFixed(3)); el.toggleAttribute('data-full', full > .98);
+      if (page && compact() && !RM()) { const s = 1 - .06 * full; page.style.scale = String(s); page.style.borderRadius = (12 * full) + 'px'; page.style.overflow = full > .01 ? 'hidden' : ''; }
+      if (o.onProgress) o.onProgress({ y: yy, open: p, full });
+    };
+    const to = (target, vel, bounce) => { anim && anim.stop(); anim = LUX.spring(y, target, { duration: bounce ? .45 : .5, bounce: bounce || 0, velocity: vel || 0 }, render, () => { if (closing) finishClose(); }); };
+    // open: rise out of the source (tap = no bounce, Apple's Now Playing uses 100% damping)
+    const src = o.source && o.source.getBoundingClientRect ? o.source.getBoundingClientRect() : null;
+    render(H());
+    if (idiom === 'mac' && !RM()) { el.animate([{ opacity: 0, scale: '.97' }, { opacity: 1, scale: '1' }], { duration: 220, easing: 'cubic-bezier(.2,.9,.25,1)' }); }
+    else if (src && !RM()) { const r0 = el.getBoundingClientRect(); el.style.transformOrigin = `${src.left + src.width / 2 - r0.left}px 0`; el.animate([{ scale: String(Math.max(.25, src.width / r0.width)), opacity: .2 }, { scale: '1', opacity: 1 }], { duration: 420, easing: 'cubic-bezier(.2,.9,.25,1)' }); }
+    requestAnimationFrame(() => to(detentY(cur), 0, 0));
+    LUX.haptic('light');
+    // drag: grabber/header anywhere; body only when it is scrolled to the top and the finger moves down (scroll handoff)
+    const tr = tracker(); let drag = null;
+    const down = (e) => { if (e.button > 0 || e.target.closest('.lux-close, input, textarea, select, [data-no-drag]')) return; const inBody = !!e.target.closest('.lux-sheet-b'); drag = { y0: e.clientY, x0: e.clientX, base: y, inBody, live: false, id: e.pointerId }; tr.reset(); tr.add(0, e.clientY); anim && anim.stop(); };
+    const move = (e) => {
+      if (!drag || e.pointerId !== drag.id) return; const dy = e.clientY - drag.y0; tr.add(0, e.clientY);
+      if (!drag.live) { if (Math.abs(dy) < SLOP || Math.abs(e.clientX - drag.x0) > Math.abs(dy)) return;
+        if (drag.inBody) { const atTop = body.scrollTop <= 0, canGrow = y > detentY('large') + 1; if (!((dy > 0 && atTop) || (dy < 0 && canGrow))) { drag = null; return; } }
+        drag.live = true; drag.y0 = e.clientY; drag.base = y; el.setPointerCapture(e.pointerId); }
+      let ny = drag.base + (e.clientY - drag.y0); const L = detentY(o.detents.includes('large') ? 'large' : o.detents[o.detents.length - 1]);
+      if (ny < L) ny = L - LUX.rubber(L - ny, H());   // soft edge past the top detent
+      render(ny); if (e.cancelable) e.preventDefault();
+    };
+    const up = (e) => {
+      if (!drag) return; const was = drag; drag = null; if (!was.live) return; const v = tr.vel().y, proj = y + LUX.project(v, .99);
+      const stops = o.detents.map(detentY), closeY = H() + 10; let best = null, bd = 1e9;
+      [...stops, closeY].forEach((s) => { const d = Math.abs(proj - s); if (d < bd) { bd = d; best = s; } });
+      if (best === closeY) { close(false, v); return; }
+      cur = o.detents[stops.indexOf(best)]; LUX.haptic('selection'); to(best, v, Math.abs(v) > 600 ? .15 : 0);   // momentum earns a little bounce
+    };
+    if (idiom !== 'mac') el.addEventListener('pointerdown', down);   // Mac sheets are not dragged
+    global.addEventListener('pointermove', move, { passive: false }); global.addEventListener('pointerup', up); global.addEventListener('pointercancel', up);
+    // wide layouts: wheel/trackpad does not drag; backdrop click or Escape closes
+    backdrop.addEventListener('click', () => close());
+    el.querySelector('.lux-close').addEventListener('click', () => close());
+    el.querySelectorAll('.lux-sheet-f button').forEach((b) => b.addEventListener('click', () => { const a = (o.actions || [{}])[+b.dataset.a] || {}; if (a.run) a.run(); close(); }));
+    if (idiom === 'mac') el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.target.matches('textarea, button')) { const p = el.querySelector('.lux-primary'); p && p.click(); } });
+    const grab = el.querySelector('.lux-grab') || doc.createElement('div'); grab.addEventListener('click', () => { const i = o.detents.indexOf(cur); cur = o.detents[(i + 1) % o.detents.length]; to(detentY(cur), 0, 0); });
+    grab.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); grab.click(); } });
+    const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } if (e.key === 'Tab') { const f = [...el.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((x) => !x.disabled && x.offsetParent); if (!f.length) return; const a = f[0], b = f[f.length - 1]; if (e.shiftKey && doc.activeElement === a) { e.preventDefault(); b.focus(); } else if (!e.shiftKey && doc.activeElement === b) { e.preventDefault(); a.focus(); } } };
+    doc.addEventListener('keydown', key);
+    setTimeout(() => (el.querySelector('[autofocus]') || el.querySelector('.lux-close')).focus({ preventScroll: true }), 30);
+    if (global.LiquidGlass && global.LiquidGlass.instances) global.LiquidGlass.instances.forEach((g) => g.refresh());
+    function close(instant, vel) {
+      if (closing) return; if (o.confirmClose && !o.confirmClose()) { to(detentY(cur), 0, 0); return; }
+      closing = true; LUX._sheets = LUX._sheets.filter((s) => s.el !== el); if (instant) return finishClose();
+      to(H() + 20, vel || 0, 0);
+    }
+    function finishClose() {
+      anim && anim.stop(); el.remove(); backdrop.remove(); doc.removeEventListener('keydown', key); global.removeEventListener('pointermove', move); global.removeEventListener('pointerup', up); global.removeEventListener('pointercancel', up);
+      { const G = global.LiquidGlass && global.LiquidGlass.instances && global.LiquidGlass.instances[0]; if (G) G.backdropDim = 0; } root.classList.remove('lux-sheet-open'); doc.querySelectorAll('[data-lux-covered]').forEach((x) => x.removeAttribute('data-lux-covered'));
+      if (inertEl) inertEl.inert = false; if (page) { page.style.scale = ''; page.style.borderRadius = ''; page.style.overflow = ''; }
+      if (global.LiquidGlass && global.LiquidGlass.instances) global.LiquidGlass.instances.forEach((g) => g.refresh());
+      if (prevFocus && prevFocus.focus) prevFocus.focus({ preventScroll: true }); o.onClose && o.onClose();
+    }
+    function api() { return { el, body, close: (i) => close(i), detent: (d) => { cur = d; to(detentY(d), 0, 0); }, get detentName() { return cur; } }; }
+    return api();
+  };
+
+  // present(): the right container per device. Mac/large displays: inline detail in the same window (fewer nested levels,
+  // less modality — HIG Designing for macOS). iPhone: a sheet rising from the tapped item. iPad: a form sheet.
+  LUX.present = function (o) { const i = LUX.idiom(); if (i === 'mac' && o.inline) return o.inline(); return LUX.sheet(o); };
+
+  /* =============================== keyboard shortcuts (Mac first, iPad with keyboard) =============================== */
+  // Standard meanings only (HIG Keyboards): ⌘F find, ⌘N new, ⌘, settings, ⌘W close, Esc cancel, ⌘[ back, ⌘Z undo.
+  const isMacOS = /Mac|iPhone|iPad/.test(navigator.platform || '') || /Mac OS/.test(navigator.userAgent);
+  LUX.shortcuts = function (map) {
+    doc.addEventListener('keydown', (e) => {
+      if (e.target.closest && e.target.closest('input, textarea, [contenteditable]') && !(e.metaKey || e.ctrlKey)) return;
+      const mod = isMacOS ? e.metaKey : e.ctrlKey, k = (mod ? 'mod+' : '') + (e.shiftKey ? 'shift+' : '') + e.key.toLowerCase();
+      const fn = map[k]; if (fn) { e.preventDefault(); fn(e); }
+    });
+    LUX.modLabel = isMacOS ? '⌘' : 'Ctrl+';
+  };
+
+  /* =============================== swipe actions on rows =============================== */
+  // Horizontal drag reveals trailing actions; axis locks after the slop; full swipe runs the first action (offer Undo).
+  LUX.swipe = function (row, o) {
+    o = o || {}; const acts = o.actions || []; if (!acts.length) return;
+    const wrap = doc.createElement('div'); wrap.className = 'lux-swipe-acts'; wrap.innerHTML = acts.map((a, i) => `<button data-i="${i}" class="${a.destructive ? 'lux-destructive' : ''}" aria-label="${a.label}">${a.icon || a.label}</button>`).join('');
+    row.classList.add('lux-swipe'); row.append(wrap); const inner = row.querySelector('.lux-swipe-in') || row.firstElementChild;
+    const W = () => acts.length * 74, tr = tracker(); let x = 0, d = null, anim = null;
+    const set = (v) => { x = v; inner.style.translate = `${v}px 0`; wrap.style.setProperty('--w', Math.max(0, -v) + 'px'); };
+    row.addEventListener('pointerdown', (e) => { if (e.target.closest('.lux-swipe-acts')) return; d = { x0: e.clientX, y0: e.clientY, base: x, live: false, id: e.pointerId }; tr.reset(); tr.add(e.clientX, 0); anim && anim.stop(); });
+    row.addEventListener('pointermove', (e) => { if (!d || e.pointerId !== d.id) return; const dx = e.clientX - d.x0, dy = e.clientY - d.y0; tr.add(e.clientX, 0);
+      if (!d.live) { if (Math.abs(dy) > SLOP && Math.abs(dy) > Math.abs(dx)) { d = null; return; } if (Math.abs(dx) < SLOP) return; d.live = true; d.x0 = e.clientX; row.setPointerCapture(e.pointerId); row.removeAttribute('data-pressed'); }
+      let nx = d.base + (e.clientX - d.x0); if (nx > 0) nx = LUX.rubber(nx, row.offsetWidth); set(nx); });
+    const end = () => { if (!d) return; const live = d.live; d = null; if (!live) return; const v = tr.vel().x, proj = x + LUX.project(v, .99);
+      if (proj < -row.offsetWidth * .62 && acts[0]) { anim = LUX.spring(x, -row.offsetWidth, { duration: .3, velocity: v }, set, () => { acts[0].run && acts[0].run(row); }); LUX.haptic('medium'); return; }
+      const target = proj < -W() / 2 ? -W() : 0; anim = LUX.spring(x, target, { duration: .45, velocity: v }, set); };
+    row.addEventListener('pointerup', end); row.addEventListener('pointercancel', end);
+    wrap.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; const a = acts[+b.dataset.i]; anim = LUX.spring(x, 0, { duration: .4 }, set); a.run && a.run(row); });
+    return { close: () => (anim = LUX.spring(x, 0, { duration: .4 }, set)) };
+  };
+
+  /* =============================== context menu: touch and hold / right click =============================== */
+  function openMenu(el, o, px, py) {
+      const lift = LUX.idiom() !== 'mac' && px !== undefined;   // only touch-and-hold lifts the item and dims the page
+      LUX.haptic('medium'); const r = el.getBoundingClientRect(); const lay = doc.createElement('div'); lay.className = 'lux-ctx-layer' + (LUX.idiom() === 'mac' || px === undefined ? ' lux-ctx-mac' : '');   // only touch-and-hold dims and lifts
+      const menu = doc.createElement('div'); menu.className = 'lux-ctx'; menu.setAttribute('role', 'menu'); if ((o.glass ?? LUX.idiom() !== 'mac') !== false) { menu.setAttribute('data-gl', '');   // Mac menus use the system's vibrant material (DOM), small and crisp
+        menu.dataset.role = 'surface'; }
+      const items = (o.items || []).filter((i) => !i.hidden);   // context menus hide unavailable items
+      menu.innerHTML = items.map((it, i) => `<button role="menuitem" data-i="${i}" class="${it.destructive ? 'lux-destructive' : ''}">${it.label}${it.icon ? `<span aria-hidden="true">${it.icon}</span>` : ''}</button>`).join('');
+      lay.append(menu); doc.body.append(lay); const mh = menu.offsetHeight, below = r.bottom + 10 + mh < innerHeight;
+      menu.style.left = clamp(r.left, 12, innerWidth - menu.offsetWidth - 12) + 'px'; menu.style.top = (below ? r.bottom + 10 : Math.max(12, r.top - mh - 10)) + 'px';
+      if (LUX.idiom() === 'mac' && px !== undefined) { menu.style.left = clamp(px, 8, innerWidth - menu.offsetWidth - 8) + 'px'; menu.style.top = clamp(py, 8, innerHeight - mh - 8) + 'px'; }   // Mac: menu opens at the pointer, no lift, no dim
+      else if (!RM() && lift) { menu.style.transformOrigin = `${(px ?? r.left + r.width / 2) - parseFloat(menu.style.left)}px ${below ? 0 : mh}px`; menu.animate([{ scale: '.6', opacity: 0 }, { scale: '1', opacity: 1 }], { duration: 300, easing: 'cubic-bezier(.2,.9,.25,1.1)' }); el.animate([{ scale: '1' }, { scale: '1.03' }], { duration: 220, fill: 'forwards', easing: 'ease-out' }); }
+      if (lift) el.classList.add('lux-lifted');
+      const close = () => { lay.remove(); el.classList.remove('lux-lifted'); el.getAnimations().forEach((a) => a.cancel()); doc.removeEventListener('keydown', k); if (global.LiquidGlass && global.LiquidGlass.instances) global.LiquidGlass.instances.forEach((g) => g.refresh()); el.focus && el.focus({ preventScroll: true }); };
+      const k = (e) => { if (e.key === 'Escape') close(); if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const b = [...menu.querySelectorAll('button')], i = b.indexOf(doc.activeElement); b[(i + (e.key === 'ArrowDown' ? 1 : -1) + b.length) % b.length].focus(); } };
+      doc.addEventListener('keydown', k); lay.addEventListener('pointerdown', (e) => { if (!e.target.closest('.lux-ctx')) close(); });
+      menu.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; const it = items[+b.dataset.i]; close(); it.run && it.run(el); });
+      if (global.LiquidGlass && global.LiquidGlass.instances) global.LiquidGlass.instances.forEach((g) => g.refresh());
+      menu.querySelector('button') && menu.querySelector('button').focus({ preventScroll: true });
+    }
+  LUX.menu = (anchor, items) => openMenu(anchor, { items }, undefined, undefined);   // a pull-down menu from a control
+
+  LUX.context = function (el, o) {
+    o = o || {}; let timer = 0, start = null;
+    const open = (px, py) => openMenu(el, o, px, py);
+    el._luxMenu = open;
+    el.addEventListener('pointerdown', (e) => { if (e.pointerType === 'mouse') return; start = { x: e.clientX, y: e.clientY }; clearTimeout(timer); timer = setTimeout(() => { start = null; el.removeAttribute('data-pressed'); open(e.clientX, e.clientY); el._luxSuppressClick = true; }, o.delay || 450); });
+    el.addEventListener('pointermove', (e) => { if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > SLOP) { clearTimeout(timer); start = null; } });
+    ['pointerup', 'pointercancel'].forEach((t) => el.addEventListener(t, () => { clearTimeout(timer); start = null; }));
+    el.addEventListener('click', (e) => { if (el._luxSuppressClick) { el._luxSuppressClick = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+    el.addEventListener('contextmenu', (e) => { e.preventDefault(); open(e.clientX, e.clientY); });
+    el.addEventListener('keydown', (e) => { if ((e.shiftKey && e.key === 'F10') || e.key === 'ContextMenu') { e.preventDefault(); open(); } });
+  };
+
+  /* =============================== toast with Undo =============================== */
+  // Prefer Undo over a confirmation when the result is expected (Apple: don't warn when data loss is the expected result).
+  LUX.toast = function (text, o) {
+    o = o || {}; const t = doc.createElement('div'); t.className = 'lux-toast'; t.setAttribute('role', 'status'); if (o.glass !== false) { t.setAttribute('data-gl', ''); t.dataset.role = 'accessory'; }
+    t.innerHTML = `<span>${text}</span>${o.action ? `<button>${o.action}</button>` : ''}`; doc.body.append(t);
+    if (!RM()) t.animate([{ translate: '-50% 24px', opacity: 0 }, { translate: '-50% 0', opacity: 1 }], { duration: 320, easing: 'cubic-bezier(.2,.9,.25,1)' });
+    if (global.LiquidGlass && global.LiquidGlass.instances) global.LiquidGlass.instances.forEach((g) => g.refresh());
+    const done = () => { t.remove(); if (global.LiquidGlass && global.LiquidGlass.instances) global.LiquidGlass.instances.forEach((g) => g.refresh()); };
+    const timer = setTimeout(done, o.duration || 5000);   // long enough to act; Undo also lives elsewhere (e.g. shake / edit menu)
+    if (o.action) t.querySelector('button').addEventListener('click', () => { clearTimeout(timer); done(); o.onAction && o.onAction(); });
+    return { close: done };
+  };
+
+  LUX.init = function (opts) {
+    Object.assign(LUX.opts, opts || {});
+    doc.addEventListener('pointerdown', pressStart, { passive: true }); doc.addEventListener('pointermove', pressMove, { passive: true });
+    ['pointerup', 'pointercancel', 'dragstart'].forEach((t) => doc.addEventListener(t, pressEnd, { passive: true })); global.addEventListener('scroll', pressEnd, { passive: true, capture: true });
+    doc.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && e.target.matches && e.target.matches(PRESS_SEL)) { e.target.setAttribute('data-pressed', ''); } });
+    doc.addEventListener('keyup', (e) => { if (e.target.removeAttribute) e.target.removeAttribute('data-pressed'); });
+    root.classList.add('lux'); setIdiom(); global.addEventListener('resize', setIdiom); try { global.matchMedia('(pointer: fine)').addEventListener('change', setIdiom); } catch (e) {}
+    return LUX;
+  };
+  global.LUX = LUX;
+})(window);
+</script>
+<script>(() => {
+'use strict';
+const root = document.documentElement, $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const RM = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+root.dataset.theme = 'dark';   // this app is dark-only; LUX tokens otherwise follow the OS scheme
+LUX.init({ autoPress: true });
+
+/* ================= data ================= */
+const PAL = [['#ff5a7a', '#ffd166', '#3a0ca3'], ['#06d6a0', '#118ab2', '#ffd166'], ['#ef476f', '#7209b7', '#f8f9fa'], ['#ff9e00', '#ff5400', '#390099'], ['#4cc9f0', '#4361ee', '#f72585'], ['#e9c46a', '#2a9d8f', '#e76f51'], ['#80ffdb', '#5390d9', '#6930c3'], ['#ffbe0b', '#fb5607', '#ff006e']];
+const T = ['Night Drive', 'Saltwater', 'Glasshouse', 'Low Tide', 'Neon Garden', 'Paper Planes', 'Static Bloom', 'Northern Air', 'Velvet Hour', 'Satellites', 'Copper Sky', 'Slow Motion'];
+const A = ['Fontaines D.C.', 'Arlo Parks', 'Bonobo', 'Wet Leg', 'Jungle', 'Phoebe Bridgers', 'Khruangbin', 'Caribou', 'Little Simz', 'Tame Impala', 'Nilüfer Yanya', 'Yeah Yeah Yeahs'];
+const SONGS = ['Intro', 'Golden Hour', 'Under Neon', 'Weightless', 'Signal', 'Northbound', 'Honey', 'After Hours', 'Static', 'Afterglow'];
+const ALB = T.map((t, i) => ({ id: i, title: t, artist: A[i], p: PAL[i % PAL.length], k: i % 4, year: 2019 + (i % 7), tracks: SONGS.slice(0, 6 + (i % 4)).map((s, j) => ({ t: s, d: `${2 + ((i + j) % 3)}:${String((i * 7 + j * 13) % 60).padStart(2, '0')}` })) }));
+let shown = ALB.slice(), filter = '';
+const cache = new Map();
+// simulated network: first load of an album takes ~650ms, later loads are instant (so no skeleton flash)
+const fetchAlbum = (a) => cache.has(a.id) ? Promise.resolve(cache.get(a.id)) : new Promise((r) => setTimeout(() => { cache.set(a.id, a); r(a); }, 650));
+
+/* ================= art (content layer, drawn) ================= */
+function art(c, x, y, w, h, al, r, press) {
+  c.save(); const s = press || 1; if (s !== 1) { c.translate(x + w / 2, y + h / 2); c.scale(s, s); c.translate(-(x + w / 2), -(y + h / 2)); }
+  c.beginPath(); c.roundRect(x, y, w, h, r); c.clip(); const p = al.p;
+  c.fillStyle = p[0]; c.fillRect(x, y, w, h); c.fillStyle = p[1];
+  if (al.k === 0) { c.beginPath(); c.arc(x + w * .65, y + h * .4, h * .32, 0, 7); c.fill(); c.fillStyle = p[2]; c.fillRect(x, y + h * .7, w, h * .3); }
+  if (al.k === 1) { for (let j = 0; j < 5; j++) { c.fillStyle = j % 2 ? p[1] : p[2]; c.fillRect(x, y + h * (.15 + j * .17), w, h * .09); } }
+  if (al.k === 2) { c.beginPath(); c.moveTo(x, y + h); c.lineTo(x + w * .5, y + h * .2); c.lineTo(x + w, y + h); c.fill(); c.fillStyle = p[2]; c.beginPath(); c.arc(x + w * .5, y + h * .2, h * .1, 0, 7); c.fill(); }
+  if (al.k === 3) { c.beginPath(); c.arc(x + w * .3, y + h * .55, h * .28, 0, 7); c.fill(); c.fillStyle = p[2]; c.beginPath(); c.arc(x + w * .7, y + h * .45, h * .22, 0, 7); c.fill(); }
+  c.restore();
+}
+
+/* ================= layout: one model, two idioms ================= */
+let L = null, ov = 0, detail = null;
+const mac = () => root.dataset.idiom === 'mac';
+function layout() {
+  const m = mac(), W = innerWidth, left = m ? 232 : 0, cw = W - left, pad = m ? 28 : 16, gap = m ? 20 : 14;
+  const top = m ? 52 + 26 : 72, titleH = m ? 44 : 78, heroH = m ? 0 : Math.min(260, (cw - pad * 2) * .62);
+  const cols = m ? Math.max(3, Math.floor((cw - pad * 2 + gap) / (190 + gap))) : 2, tw = (cw - pad * 2 - gap * (cols - 1)) / cols, cap = m ? 40 : 52;
+  const gridTop = top + titleH + (heroH ? heroH + 40 : 0) + (m ? 0 : 0) + 44, tiles = [];   // 44 = section header
+  shown.forEach((a, i) => { const r = Math.floor(i / cols), c = i % cols; tiles.push({ a, x: pad + c * (tw + gap), y: gridTop + r * (tw + cap + gap), w: tw, h: tw }); });
+  const height = gridTop + Math.ceil(shown.length / cols) * (tw + cap + gap) + (m ? 60 : 180);
+  return { m, left, cw, pad, gap, top, titleH, heroH, cols, tw, cap, gridTop, tiles, height };
+}
+function buildTiles() {
+  L = layout(); const host = $('#tiles'); host.style.height = L.height + 'px'; host.innerHTML = '';
+  L.tiles.forEach((t) => { const b = document.createElement('button'); b.className = 'tile'; b.dataset.entity = 'album'; b.setAttribute('aria-label', `${t.a.title}, ${t.a.artist}`); Object.assign(b.style, { left: t.x + 'px', top: t.y + 'px', width: t.w + 'px', height: (t.h + L.cap - 8) + 'px' }); b._t = t; t.el = b; t.pv = 1;
+    b.addEventListener('click', () => open(t.a, b)); b.addEventListener('mouseenter', () => (t.hover = 1)); b.addEventListener('mouseleave', () => (t.hover = 0)); host.append(b); });
+  $('#detail').style.display = detail && mac() ? 'block' : 'none'; $('#tiles').style.display = detail && mac() ? 'none' : 'block';
+}
+
+/* ================= backdrop: what the glass refracts ================= */
+let lastT = performance.now();
+function drawBackdrop(c, W, H) {
+  const now = performance.now(), dt = Math.min(.05, (now - lastT) / 1000); lastT = now;
+  c.fillStyle = '#121317'; c.fillRect(0, 0, W, H); if (!L) return;
+  const sy = scrollY - ov, x0 = L.left;
+  if (detail && mac()) {   // Mac inline detail: the album's own colours sit behind the toolbar and sidebar
+    const a = detail.a, g = c.createLinearGradient(0, 0, 0, 360); g.addColorStop(0, a.p[0] + 'b0'); g.addColorStop(1, a.p[0] + '00');
+    c.fillStyle = g; c.fillRect(0, -sy * .5, W, 360); return;   // the album's colour washes in behind toolbar and sidebar, then fades
+  }
+  const m = L.m;
+  c.fillStyle = '#fff'; c.font = `800 ${m ? 26 : 34}px -apple-system,system-ui,sans-serif`; c.fillText(filter ? `Results for “${filter}”` : 'Listen Now', x0 + L.pad, L.top + (m ? 26 : 34) - sy);
+  if (L.heroH) { art(c, x0 + L.pad, L.top + L.titleH - sy, L.cw - L.pad * 2, L.heroH, { p: ['#3a0ca3', '#f72585', '#4cc9f0'], k: 0 }, 22); c.fillStyle = '#fff'; c.font = '700 22px -apple-system,system-ui,sans-serif'; c.fillText('Your Station', x0 + L.pad + 18, L.top + L.titleH + L.heroH - 44 - sy); c.font = '500 15px -apple-system,system-ui,sans-serif'; c.fillStyle = '#ffffffcc'; c.fillText('Made from what you play most', x0 + L.pad + 18, L.top + L.titleH + L.heroH - 20 - sy); }
+  c.fillStyle = '#fff'; c.font = `700 ${m ? 17 : 22}px -apple-system,system-ui,sans-serif`; c.fillText('Recently Played', x0 + L.pad, L.gridTop - 14 - sy);
+  L.tiles.forEach((t) => {
+    const y = t.y - sy; if (y > H + 20 || y + t.h + L.cap < -20) return;
+    const pressed = t.el && t.el.hasAttribute('data-pressed'); const target = pressed && !m ? .965 : 1; t.pv += (target - t.pv) * Math.min(1, dt * (pressed ? 40 : 14));
+    art(c, x0 + t.x, y, t.w, t.h, t.a, m ? 10 : 16, t.pv);
+    if (m && (t.hover || pressed)) { c.fillStyle = pressed ? 'rgba(0,0,0,.35)' : 'rgba(0,0,0,.18)'; c.beginPath(); c.roundRect(x0 + t.x, y, t.w, t.h, 10); c.fill(); c.fillStyle = 'rgba(255,255,255,.92)'; c.beginPath(); c.arc(x0 + t.x + 26, y + t.h - 26, 15, 0, 7); c.fill(); c.fillStyle = '#121317'; c.beginPath(); c.moveTo(x0 + t.x + 22, y + t.h - 33); c.lineTo(x0 + t.x + 33, y + t.h - 26); c.lineTo(x0 + t.x + 22, y + t.h - 19); c.fill(); }   // Mac: hover reveals Play, no scaling
+    c.fillStyle = '#fff'; c.font = `650 ${m ? 13 : 15}px -apple-system,system-ui,sans-serif`; c.fillText(t.a.title, x0 + t.x, y + t.h + (m ? 18 : 22));
+    c.fillStyle = '#9aa3b5'; c.font = `500 ${m ? 12 : 13}px -apple-system,system-ui,sans-serif`; c.fillText(t.a.artist, x0 + t.x, y + t.h + (m ? 34 : 40));
+  });
+}
+const glass = LiquidGlass.mount({ drawBackdrop, scrollEdge: { color: '18,19,23', top: 96, topAlpha: () => (mac() ? 0 : Math.min(1, scrollY / 60) * .85), get bottom() { return mac() ? 0 : 210; } /* the bottom fade exists for floating bars; the Mac has none */ } });
+root.dataset.lgReady = '1';
+
+/* ================= detail: rising card on iPhone, inline in the window on Mac ================= */
+const sk = () => `<div class="d-head"><span class="lux-sk" style="width:120px;height:120px;border-radius:14px;flex:none"></span><div style="flex:1">${LUX.skeleton.lines(2, [80, 50])}</div></div>${LUX.skeleton.block(44, 22)}${Array.from({ length: 6 }, () => LUX.skeleton.row(0)).join('')}`;
+const detailHTML = (a) => `<div class="d-head"><canvas width="300" height="300" aria-hidden="true"></canvas><div><h2>${a.title}</h2><p>${a.artist}</p><small>${a.year} · ${a.tracks.length} songs</small></div></div>
+  <div class="d-act"><button class="play" data-play><svg class="i"><use href="#s-play"/></svg>Play</button><button data-shuffle><svg class="i"><use href="#s-shuffle"/></svg>Shuffle</button></div>
+  <div class="rows" role="list">${a.tracks.map((t, j) => `<div class="row" role="listitem" data-j="${j}"><div class="lux-swipe-in" data-press="row" tabindex="0" role="button" aria-label="Play ${t.t}"><span class="t">${t.t}</span><span class="d">${t.d}</span><button class="more" aria-label="More for ${t.t}"><svg class="i"><use href="#s-more"/></svg></button></div></div>`).join('')}</div>`;
+function wire(host, a) {
+  const cv = host.querySelector('.d-head canvas'); if (cv) art(cv.getContext('2d'), 0, 0, 300, 300, a, 24);
+  host.querySelector('[data-play]').onclick = () => play(a, 0); host.querySelector('[data-shuffle]').onclick = () => play(a, Math.floor(Math.random() * a.tracks.length));
+  $$('.row', host).forEach((row) => {
+    const j = +row.dataset.j, inner = row.firstElementChild, t = a.tracks[j];
+    if (mac()) { inner.addEventListener('click', () => { $$('.row', host).forEach((r) => r.removeAttribute('aria-selected')); row.setAttribute('aria-selected', 'true'); }); inner.addEventListener('dblclick', () => play(a, j)); inner.addEventListener('keydown', (e) => { if (e.key === 'Enter') play(a, j); }); }   // Mac: click selects, double-click / Return plays
+    else inner.addEventListener('click', (e) => { if (!e.target.closest('.more')) play(a, j); });
+    const items = [{ label: 'Play Next', run: () => LUX.toast(`“${t.t}” plays next`) }, { label: 'Add to Library', run: () => LUX.toast(`Added “${t.t}”`) }, { label: 'Share Song…', run: () => LUX.toast('Link copied') }, { label: 'Remove from Album', destructive: true, run: () => remove(row, a, j) }];
+    LUX.context(inner, { items }); row.querySelector('.more').addEventListener('click', (e) => { e.stopPropagation(); LUX.menu(row.querySelector('.more'), items); });
+    if (!mac()) LUX.swipe(row, { actions: [{ label: 'Remove', destructive: true, icon: 'Remove', run: () => remove(row, a, j) }, { label: 'Queue', icon: 'Queue', run: () => LUX.toast(`“${t.t}” added to queue`) }] });
+  });
+}
+function remove(row, a, j) {   // expected outcome, so no confirmation: do it, offer Undo
+  const t = a.tracks[j]; row.style.display = 'none'; LUX.haptic('success');
+  LUX.toast(`Removed “${t.t}”`, { action: 'Undo', onAction: () => { row.style.display = ''; const s = row.querySelector('.lux-swipe-in'); s.style.translate = ''; } });
+}
+let sheetRef = null;
+function open(a, src) {
+  LUX.present({
+    source: src, label: a.title, detents: ['medium', 'large'], onClose: () => (sheetRef = null),
+    onProgress: ({ full }) => sheetRef && glass.set(sheetRef.el, { dim: .72 + .22 * full }),   // a sheet deepens as it reaches full height
+    inline: () => openInline(a, src)
+  });
+  if (!mac()) { sheetRef = LUX._sheets[0]; const body = sheetRef.body; body.classList.add('sheet-detail'); LUX.load(body, fetchAlbum(a), { skeleton: sk, render: detailHTML }).then(() => wire(body, a)); }
+}
+let savedScroll = 0;
+function openInline(a, src) {   // Mac: navigate inside the window; sidebar and toolbar stay, Back returns
+  savedScroll = scrollY; detail = { a, src }; const d = $('#detail'); d.style.paddingTop = (52 + 26) + 'px';
+  $('#tiles').style.display = 'none'; d.style.display = 'block'; scrollTo(0, 0); $('#mBack').disabled = false; $('#mTitle').textContent = a.title;
+  LUX.load(d, fetchAlbum(a), { skeleton: sk, render: detailHTML }).then(() => { wire(d, a); const f = d.querySelector('.row .lux-swipe-in'); f && f.focus({ preventScroll: true }); });
+  if (!RM()) d.animate([{ opacity: 0, translate: '12px 0' }, { opacity: 1, translate: '0 0' }], { duration: 220, easing: 'cubic-bezier(.2,.9,.25,1)' });
+}
+function closeInline() { if (!detail) return; const src = detail.src; detail = null; $('#detail').style.display = 'none'; $('#tiles').style.display = 'block'; $('#mBack').disabled = true; $('#mTitle').textContent = 'Home'; scrollTo(0, savedScroll); src && src.focus({ preventScroll: true }); }
+$('#mBack').onclick = closeInline;
+
+/* ================= playback state (both idioms) ================= */
+let playing = true;
+function play(a, j) { playing = true; $$('.npT').forEach((e) => (e.textContent = a.tracks[j].t)); $$('.npA').forEach((e) => (e.textContent = a.artist)); $$('.art-dot').forEach((e) => { e.style.setProperty('--a', a.p[0]); e.style.setProperty('--b', a.p[1]); }); syncPP(); LUX.haptic('light'); $$('.row').forEach((r) => r.removeAttribute('aria-current')); $$(`.row[data-j="${j}"]`).forEach((r) => r.setAttribute('aria-current', 'true')); }
+const syncPP = () => $$('.ppb').forEach((b) => { b.innerHTML = `<svg class="i"><use href="#s-${playing ? 'pause' : 'play'}"/></svg>`; b.setAttribute('aria-label', playing ? 'Pause' : 'Play'); });
+$$('.ppb').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); playing = !playing; syncPP(); }));
+
+/* ================= Mac: search filters the grid live; keyboard shortcuts ================= */
+$('#q').addEventListener('input', (e) => { filter = e.target.value.trim(); shown = ALB.filter((a) => !filter || (a.title + ' ' + a.artist).toLowerCase().includes(filter.toLowerCase())); if (detail) closeInline(); buildTiles(); });
+$('#mPlus').onclick = () => LUX.menu($('#mPlus'), [{ label: 'New Playlist', run: () => LUX.toast('New playlist created') }, { label: 'New Smart Playlist…', run: () => LUX.toast('Smart playlist') }]);
+$('#mMore').onclick = () => LUX.menu($('#mMore'), [{ label: 'View as Grid', run: () => {} }, { label: 'View as List', run: () => LUX.toast('List view') }]);
+LUX.shortcuts({ 'mod+f': () => { if (mac()) $('#q').focus(); }, 'mod+[': closeInline, 'escape': () => { if (detail && !LUX._sheets.length) closeInline(); }, ' ': () => { playing = !playing; syncPP(); }, 'mod+n': () => LUX.toast('New playlist created') });
+$$('.side a').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); $$('.side a').forEach((x) => x.removeAttribute('aria-current')); a.setAttribute('aria-current', 'page'); if (detail) closeInline(); scrollTo(0, 0); }));
+
+/* ================= iPhone: tab bar with selection lens, + grows into its menu ================= */
+const spring = (x, v, t, k, c, dt) => { const n = Math.max(1, Math.ceil(dt * 240)), h = dt / n; for (let i = 0; i < n; i++) { const a = -k * (x - t) - c * v; v += a * h; x += v * h; } return [x, v]; };
+const lerp = (a, b, t) => a + (b - a) * t;
+const tabs = $('#tabs'), tabEls = $$('.tab', tabs), lensEl = $('#lens'), rest = $('#restsel');
+let sel = 0, lx = 0, vx = 0, tx = 0, act = 0, vAct = 0, actT = 0, dragging = false;
+const tc = (i) => tabEls[i].offsetLeft + tabEls[i].offsetWidth / 2;
+const choose = (i) => { if (sel === i) scrollTo({ top: 0, behavior: RM() ? 'auto' : 'smooth' }); sel = i; tx = tc(i); tabEls.forEach((t, j) => (j === sel ? t.setAttribute('aria-current', 'page') : t.removeAttribute('aria-current'))); LUX.haptic('selection'); };   // re-tapping the current tab scrolls to top
+const clampX = (x) => Math.max(tc(0), Math.min(tc(tabEls.length - 1), x));
+tabs.addEventListener('pointerdown', (e) => { tabs.setPointerCapture(e.pointerId); dragging = true; actT = 1; tx = clampX(e.clientX - tabs.getBoundingClientRect().left); });
+tabs.addEventListener('pointermove', (e) => { if (dragging) tx = clampX(e.clientX - tabs.getBoundingClientRect().left); });
+const release = () => { if (!dragging) return; dragging = false; let bi = 0, bd = 1e9; tabEls.forEach((t, i) => { const d = Math.abs(tc(i) - tx); if (d < bd) { bd = d; bi = i; } }); choose(bi); };
+tabs.addEventListener('pointerup', release); tabs.addEventListener('pointercancel', release);
+tabEls.forEach((t, i) => t.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); actT = 1; choose(i); } }));
+const plus = $('#plus'), pmenu = $('#pmenu'), plusIco = $('#plusIco'), CTRL = glass.role(plus), SURF = LiquidGlass.ROLES.surface;
+let mo = 0, vMo = 0, moT = 0, inkStart = null;
+const toggleMenu = (v) => { moT = v ? 1 : 0; plus.setAttribute('aria-expanded', String(!!v)); pmenu.style.pointerEvents = v ? 'auto' : 'none'; if (v) LUX.haptic('light'); };
+plus.addEventListener('click', (e) => { if (e.target.closest('.pmenu button')) { toggleMenu(0); LUX.toast(e.target.closest('button').textContent.trim()); return; } if (!moT) toggleMenu(1); });
+plus.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMenu(moT ? 0 : 1); } if (e.key === 'Escape') toggleMenu(0); });
+document.addEventListener('pointerdown', (e) => { if (moT && !e.target.closest('#plus')) toggleMenu(0); });
+
+/* ================= overscroll: elastic edges everywhere, pull to refresh on touch ================= */
+LUX.overscroll(window, { content: $('#scrollc'), onOffset: (y) => (ov = y), onRefresh: () => (mac() ? null : new Promise((r) => setTimeout(() => { shown = shown.slice(1).concat(shown[0]); buildTiles(); LUX.haptic('success'); r(); }, 900))) });
+
+let last = performance.now();
+function loop(tm) {
+  const dt = Math.min(.04, (tm - last) / 1000); last = tm;
+  if (!mac()) {
+    if (!dragging && Math.abs(lx - tx) < .6 && Math.abs(vx) < 4) actT = 0;
+    [lx, vx] = spring(lx, vx, tx, RM() ? 900 : 170, RM() ? 60 : 19, dt); [act, vAct] = spring(act, vAct, actT, RM() ? 900 : 120, RM() ? 60 : 16, dt); act = Math.max(0, Math.min(1.15, act));
+    const tw = tabEls[0].offsetWidth, th = tabs.offsetHeight - 8, lw = tw * (1 + .22 * act), lh = th * (1 + .42 * act);
+    Object.assign(lensEl.style, { left: (lx - lw / 2) + 'px', top: ((tabs.offsetHeight - lh) / 2) + 'px', width: lw + 'px', height: lh + 'px', borderRadius: lh / 2 + 'px' });
+    Object.assign(rest.style, { left: (tc(sel) - tw / 2) + 'px', width: tw + 'px', opacity: String(Math.max(0, 1 - act * 2)) });
+    tabEls.forEach((t) => { const c = t.offsetLeft + t.offsetWidth / 2, near = Math.max(0, 1 - Math.abs(c - lx) / tw); t.style.scale = String(1 + .2 * act * near); });
+    glass.level(lensEl, Math.min(1, act * 1.4));
+    [mo, vMo] = spring(mo, vMo, moT, RM() ? 900 : 150, RM() ? 70 : 17, dt); const m = Math.max(0, mo), m1 = Math.min(1, m);
+    glass.morph(1, Math.abs(mo - moT) > .004 || Math.abs(vMo) > .02);
+    Object.assign(plus.style, { width: lerp(48, 220, m) + 'px', height: lerp(48, 150, m) + 'px', borderRadius: Math.min(lerp(48, 150, m) / 2, lerp(24, 26, m1)) + 'px' });
+    pmenu.style.opacity = String(Math.max(0, Math.min(1, (m - .55) / .45))); plusIco.style.opacity = String(Math.max(0, 1 - m * 2.5)); plusIco.style.rotate = m * 90 + 'deg';
+    glass.set(plus, { dim: lerp(CTRL.dim, SURF.dim, m1), frost: lerp(0, SURF.frost, m1), press: 1 - m1 });
+  } else glass.level(lensEl, 0);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+const hint = $('#hint'); hint.setAttribute('data-lux-chrome', ''); const setHint = () => { hint.textContent = mac() ? 'Click an album · right-click a song · ⌘F to search · Space to play/pause' : 'Tap an album · pull to refresh · swipe or hold a song'; };
+addEventListener('scroll', () => (hint.style.opacity = scrollY > 40 ? 0 : 1), { passive: true });
+addEventListener('lux:idiom', () => { if (detail && !mac()) closeInline(); LUX._sheets.forEach((s) => s.close(true)); buildTiles(); glass.refresh(); setHint(); });
+let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(buildTiles, 80); });
+buildTiles(); setHint();
+window.__ex = { glass, open, play, closeInline, get detail() { return detail; }, menu: toggleMenu };
+})();
+</script>

@@ -1,0 +1,130 @@
+/* liquid-glass.css : runtime stylesheet for MASTER.md (v0.1)
+   Tiers: T0 solid (a11y/no support) · T1 frost · T2 lens (set by liquid-glass.js via [data-lg-lens]).
+   Glass belongs to the functional layer only (MASTER §5). Content is flat. */
+
+:root{
+  /* tuned [T] material tokens (MASTER §4.1) */
+  --lg-blur: 14px;
+  --lg-blur-lg: 20px;
+  --lg-sat: 1.7;
+  --lg-tint: rgb(255 255 255 / .30);
+  --lg-tint-solid: rgb(246 246 248 / .96);
+  --lg-rim-hi: rgb(255 255 255 / .72);
+  --lg-rim-lo: rgb(255 255 255 / .20);
+  --lg-edge: rgb(255 255 255 / .14);
+  --lg-shadow: 0 10px 30px rgb(0 0 0 / .14), 0 2px 6px rgb(0 0 0 / .08);
+  --lg-ink: rgb(14 14 18);
+  --lg-ink-2: rgb(14 14 18 / .78);
+  --lg-fill: rgb(255 255 255 / .34);         /* vibrant fill ON glass (selected thumb) */
+  --lg-accent: #0a5fd6;   /* ≥4.5:1 with white ink (audit G5) */
+  --lg-accent-ink: #fff;
+  --lg-focus: #0a84ff;
+  --lg-dim-clear: rgb(0 0 0 / .35);
+  /* sizes */
+  --lg-hit: 44px;
+  --lg-bar-h: 64px;
+  --lg-inset: 14px;
+  /* radii (MASTER §6) */
+  --lg-r-sheet: 34px; --lg-r-card: 24px; --lg-r-side: 28px; --lg-r-menu: 22px;
+  /* springs are injected by JS as linear() strings; fallbacks: */
+  --lg-spring-press: cubic-bezier(.2,.9,.3,1.35);
+  --lg-spring-morph: cubic-bezier(.2,.9,.3,1.2);
+  --lg-fade: 160ms ease-out;
+}
+:root[data-lg-scheme="dark"]{
+  --lg-tint: rgb(28 28 32 / .38);
+  --lg-tint-solid: rgb(34 34 38 / .96);
+  --lg-rim-hi: rgb(255 255 255 / .38);
+  --lg-rim-lo: rgb(255 255 255 / .10);
+  --lg-edge: rgb(255 255 255 / .10);
+  --lg-ink: rgb(246 246 250);
+  --lg-ink-2: rgb(246 246 250 / .88);
+  --lg-fill: rgb(255 255 255 / .16);
+  --lg-shadow: 0 10px 30px rgb(0 0 0 / .45), 0 2px 6px rgb(0 0 0 / .3);
+}
+
+/* ---------- T1: the glass surface ---------- */
+[data-glass]{
+  position: relative;
+  color: var(--lg-ink);
+  background: var(--lg-tint);
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  box-shadow:
+    var(--lg-shadow),
+    inset 1.5px 1.5px 0 var(--lg-rim-hi),
+    inset -1px -1px 0 var(--lg-rim-lo),
+    inset 0 0 0 1px var(--lg-edge);
+}
+[data-glass][data-size="lg"]{ -webkit-backdrop-filter: blur(var(--lg-blur-lg)) saturate(var(--lg-sat)); backdrop-filter: blur(var(--lg-blur-lg)) saturate(var(--lg-sat)); }
+[data-glass][data-tone="light"]{ --lg-ink: rgb(246 246 250); --lg-ink-2: rgb(246 246 250 / .88); --lg-tint: rgb(28 28 32 / .34); --lg-fill: rgb(255 255 255 / .20); }
+[data-glass][data-tone="dark"] { --lg-ink: rgb(14 14 18); --lg-ink-2: rgb(14 14 18 / .78); --lg-tint: rgb(255 255 255 / .32); --lg-fill: rgb(255 255 255 / .38); }
+/* clear variant: only over bold media, always with a 35% dim (MASTER §3.2) */
+[data-glass][data-variant="clear"]{ --lg-tint: var(--lg-dim-clear); -webkit-backdrop-filter: blur(3px) saturate(1.3); backdrop-filter: blur(3px) saturate(1.3); }
+
+/* placeholders must stay legible on glass (audit G5) */
+[data-glass] input::placeholder{ color: var(--lg-ink-2); opacity: 1; }
+
+/* specular glow that follows the pointer (flex & glow, MASTER §9.2) */
+[data-glass]::after{
+  content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; opacity:0;
+  background: radial-gradient(120px circle at var(--gx,50%) var(--gy,50%), rgb(255 255 255 / .55), transparent 70%); /* taste-skill-ignore: glass specular */
+  mix-blend-mode: soft-light;
+  transition: opacity 400ms ease-out;
+}
+[data-glass].is-glow::after{ opacity:1; transition-duration:240ms; }
+
+/* tinted primary: colour goes on the BACKGROUND, one per bar (MASTER §3.4) */
+[data-prominent]{ background: var(--lg-accent) !important; color: var(--lg-accent-ink); --lg-ink: var(--lg-accent-ink); }
+[data-prominent]::after{ mix-blend-mode: overlay; }
+
+/* ---------- T2: lens (class set by JS only where supported) ---------- */
+[data-glass][data-lg-lens]{
+  -webkit-backdrop-filter: var(--lg-lens-filter);
+  backdrop-filter: var(--lg-lens-filter);
+}
+
+/* ---------- T0: solid fallback (reduce transparency / contrast / no support) ---------- */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))){
+  [data-glass]{ background: var(--lg-tint-solid); }
+}
+@media (prefers-reduced-transparency: reduce){ [data-glass]{ --lg-force-solid: 1; } }
+:root[data-lg-reduce-transparency] [data-glass],
+:root[data-lg-contrast="more"] [data-glass]{
+  -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+  background: var(--lg-tint-solid) !important;
+  --lg-ink: rgb(10 10 12); --lg-ink-2: rgb(10 10 12 / .85);
+}
+:root[data-lg-scheme="dark"][data-lg-reduce-transparency] [data-glass],
+:root[data-lg-scheme="dark"][data-lg-contrast="more"] [data-glass]{ --lg-ink: rgb(255 255 255); --lg-ink-2: rgb(255 255 255 / .9); }
+:root[data-lg-reduce-transparency] [data-glass][data-prominent],
+:root[data-lg-contrast="more"] [data-glass][data-prominent]{ background: var(--lg-accent) !important; --lg-ink: var(--lg-accent-ink); }
+:root[data-lg-contrast="more"] [data-glass]{ outline: 1.5px solid currentColor; outline-offset: -1.5px; }
+:root[data-lg-reduce-transparency] [data-glass]::after{ display:none; }
+@media (forced-colors: active){ [data-glass]{ background: Canvas; border: 1px solid CanvasText; backdrop-filter:none; box-shadow:none; } }
+
+/* ---------- press, focus ---------- */
+[data-press]{ transition: transform 420ms var(--lg-spring-press), background-color 160ms; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+[data-press].is-pressed{ transform: scale(.965); transition-duration: 120ms; transition-timing-function: ease-out; }
+:where(a,button,input,select,[tabindex],[role="tab"],[role="button"],[role="menuitem"]):focus-visible{ outline: 3px solid var(--lg-focus); outline-offset: 2px; }
+
+/* ---------- scroll-edge effect: blur+fade under bars, not a divider (MASTER §9.4) ---------- */
+.lg-edge{
+  position: fixed; left:0; right:0; z-index: 10; pointer-events:none;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+.lg-edge[data-edge="top"]{ top:0; height: calc(var(--lg-bar-h) + var(--lg-inset) + 18px);
+  -webkit-mask-image: linear-gradient(#000 55%, transparent); mask-image: linear-gradient(#000 55%, transparent); } /* taste-skill-ignore: scroll-edge mask */
+.lg-edge[data-edge="bottom"]{ bottom:0; height: calc(var(--lg-bar-h) + var(--lg-inset) + 26px);
+  -webkit-mask-image: linear-gradient(transparent, #000 45%); mask-image: linear-gradient(transparent, #000 45%); } /* taste-skill-ignore: scroll-edge mask */
+:root[data-lg-reduce-transparency] .lg-edge{ -webkit-backdrop-filter:none; backdrop-filter:none; background: var(--lg-edge-solid, transparent); }
+
+/* ---------- reduced motion (MASTER §9.6): same states, fades only ---------- */
+@media (prefers-reduced-motion: reduce){
+  [data-press], [data-press].is-pressed{ transition: opacity var(--lg-fade); transform:none; }
+  [data-glass]::after{ display:none; }
+}
+:root[data-lg-reduce-motion] [data-press], :root[data-lg-reduce-motion] [data-press].is-pressed{ transition: opacity var(--lg-fade); transform:none; }
+:root[data-lg-reduce-motion] [data-glass]::after{ display:none; }
+
+.lg-sr{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }

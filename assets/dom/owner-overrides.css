@@ -1,0 +1,19 @@
+/* owner-overrides.css — load AFTER liquid-glass.css. Applies the owner's v0.4–v0.6 decisions to the DOM tier (master §3.7–3.9). */
+:root{
+  --lg-blur: 3px;              /* clear glass: almost no blur on controls and bars */
+  --lg-blur-lg: 14px;          /* text surfaces (menus, popovers) keep real smoothing */
+  --lg-sat: 1;                 /* natural colour, no boost */
+  --lg-shadow: 0 0 0 0 transparent;   /* no shadow underneath */
+  --lg-tint: rgb(255 255 255 / .10);
+}
+:root[data-lg-scheme="dark"]{ --lg-tint: rgb(20 20 24 / .22); --lg-shadow: 0 0 0 0 transparent; }
+/* adaptive ink fades instead of snapping (0.5s), matching DWELL */
+[data-glass][data-adaptive]{ transition: color .5s ease, background-color .5s ease; }
+/* lit silhouette: one directional rim line instead of an even outline (--lg-light: angle of the light, default top-left) */
+[data-glass]{ box-shadow: none; }
+[data-glass]::before{ content:""; position:absolute; inset:0; border-radius:inherit; padding:1.2px; pointer-events:none;
+  background: conic-gradient(from calc(var(--lg-light, 315deg) - 60deg), rgb(255 255 255 / .75), rgb(255 255 255 / 0) 70deg, rgb(255 255 255 / 0) 150deg, rgb(255 255 255 / .3) 180deg, rgb(255 255 255 / 0) 210deg, rgb(255 255 255 / 0) 290deg, rgb(255 255 255 / .75) 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
+:root[data-lg-reduce-transparency] [data-glass]::before{ display:none; }
+/* floating bars hug the centre (master §3.9) */
+[data-glass][data-role="bar"], [data-glass][data-role="accessory"]{ width: min(calc(100vw - 32px), max(33.333vw, 340px), 520px); margin-inline: auto; }
