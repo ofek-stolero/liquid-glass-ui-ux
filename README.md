@@ -8,7 +8,7 @@
 3. **The run, 10 steps:**
    - read the app and list the things people open and the things people do
    - map each screen to iPhone and Mac patterns
-   - design the content layer with the taste skill
+   - design the content layer with the [taste skill](https://github.com/Leonxlnx/taste-skill)
    - decide how each item opens
    - add touch feedback and stretchy edges
    - add skeleton loading
